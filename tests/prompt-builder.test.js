@@ -107,3 +107,17 @@ test("tutorial prompt adds guide-specific browser instructions", () => {
   assert.match(prompt, /screen recording/i);
   assert.match(prompt, /BROWSER_ACTION/);
 });
+
+
+test("browser prompt teaches screenshot-first coordinate actions", () => {
+  const visualTask = {
+    ...task,
+    audit_mode: "read_only",
+    audit_target: { url: "https://example.com/" }
+  };
+  const prompt = buildInitialPrompt(visualTask);
+  assert.match(prompt, /SCREENSHOT AWARENESS/);
+  assert.match(prompt, /click_point/);
+  assert.match(prompt, /xPct/);
+  assert.match(prompt, /primary description of the current browser environment/i);
+});

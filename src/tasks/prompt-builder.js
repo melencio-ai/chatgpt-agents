@@ -38,11 +38,20 @@ You may request exactly ONE browser action per response using one JSON object on
 BROWSER_ACTION: {"type":"inspect"}
 BROWSER_ACTION: {"type":"click_text","text":"Locations"}
 BROWSER_ACTION: {"type":"click_selector","selector":"a[href='/locations/']"}
+BROWSER_ACTION: {"type":"click_point","xPct":0.22,"yPct":0.41}
 BROWSER_ACTION: {"type":"navigate","url":"/locations/"}
 BROWSER_ACTION: {"type":"scroll","deltaY":800}
 BROWSER_ACTION: {"type":"back"}
 BROWSER_ACTION: {"type":"wait","ms":1000}
 ${tutorial ? `BROWSER_ACTION: {"type":"upload_sample_csv","selector":"input[type='file']"}\nThe upload_sample_csv action is tutorial-only and uses generated dummy contacts, never real customer data.` : ""}
+
+SCREENSHOT AWARENESS:
+- Treat the attached screenshot as the primary description of the current browser environment.
+- Visually inspect the screenshot before choosing the next action.
+- Use the structured page text and detected elements as supporting evidence, not as a substitute for looking at the screenshot.
+- When a visible control is clear in the screenshot but text/selector matching is unreliable, use click_point.
+- click_point coordinates are normalized to the visible viewport: xPct=0 is the left edge, xPct=1 is the right edge, yPct=0 is the top edge, yPct=1 is the bottom edge.
+- The extension verifies the actual DOM control under a click_point and refuses hidden, disabled, non-interactive, or obvious state-changing targets.
 
 Do not request typing, form submission, payment, saving, deletion, creation, activation/deactivation, approval/rejection, booking, favoriting, inviting, email sending, password reset, refunding, or any other state-changing action. The extension also blocks obvious state-changing controls.
 
@@ -136,6 +145,7 @@ function renderInteractiveElements(elements) {
       item.text ? `"${String(item.text).slice(0, 180)}"` : "",
       item.role ? `role=${item.role}` : "",
       item.href ? `href=${item.href}` : "",
+      item.center ? `center=(${item.center.xPct},${item.center.yPct})` : "",
       item.disabled ? "disabled" : ""
     ].filter(Boolean);
     return `- ${parts.join(" | ")}`;
@@ -146,7 +156,7 @@ export function buildBrowserObservationPrompt(task, observation, stepNumber = 1,
   const snapshot = observation?.snapshot || {};
   return `Browser observation ${stepNumber} for ${task.title}.
 
-A screenshot of the current browser viewport is attached.
+A screenshot of the current browser viewport is attached. Inspect it first; it is your primary environment view.
 
 Current page:
 URL: ${snapshot.url || "unknown"}
@@ -162,7 +172,7 @@ ${renderInteractiveElements(snapshot.interactiveElements)}
 Previous browser action result:
 ${actionResult ? JSON.stringify(actionResult) : "Initial observation; no browser action has run yet."}
 
-${isTutorialTask(task) ? "Continue the tutorial using the browser yourself. Choose the next small, visible teaching step and request exactly one safe browser action. Do not ask the user to move around the site for you." : "Continue the audit using the browser yourself. Inspect this evidence, record any confirmed findings internally in your running audit, and choose exactly one safe next browser action. Do not ask the user to move around the site for you."}
+${isTutorialTask(task) ? "Continue the tutorial using the browser yourself. Visually inspect the screenshot, choose the next small visible teaching step, and request exactly one safe browser action. Prefer click_point when the screenshot is clearer than the DOM labels. Do not ask the user to move around the site for you." : "Continue the audit using the browser yourself. Visually inspect the screenshot first, then use page text/elements to confirm what you see and choose exactly one safe next browser action. Prefer click_point when visual placement is clearer than the DOM labels. Do not ask the user to move around the site for you."}
 
 ${renderFooter(task)}`;
 }

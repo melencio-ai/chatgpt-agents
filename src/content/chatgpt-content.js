@@ -23,8 +23,11 @@
     ],
     sendButton: [
       "button[data-testid='send-button']",
+      "button[data-testid*='send']",
       "button[aria-label='Send prompt']",
-      "button[aria-label*='Send']"
+      "button[aria-label='Send message']",
+      "button[aria-label*='Send']",
+      "form button[type='submit']"
     ],
     stopButton: [
       "button[data-testid='stop-button']",
@@ -61,10 +64,37 @@
     return firstMatch(selectors.composer);
   }
 
+  function isVisible(element) {
+    if (!element) return false;
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.visibility !== "hidden" &&
+      style.display !== "none" &&
+      rect.width > 0 &&
+      rect.height > 0;
+  }
+
   function getSendButton() {
-    return selectors.sendButton
+    const explicit = selectors.sendButton
       .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
-      .find((button) => !button.disabled) || null;
+      .find((button) => !button.disabled && isVisible(button));
+    if (explicit) return explicit;
+
+    const composer = getComposer();
+    const form = composer?.closest("form");
+    if (!form) return null;
+
+    return Array.from(form.querySelectorAll("button"))
+      .filter((button) => !button.disabled && isVisible(button))
+      .find((button) => {
+        const label = [
+          button.getAttribute("aria-label"),
+          button.getAttribute("data-testid"),
+          button.title,
+          button.textContent
+        ].filter(Boolean).join(" ").toLowerCase();
+        return /send|submit/.test(label) && !/stop|voice|audio|dictat|attach|upload/.test(label);
+      }) || null;
   }
 
   function getStopButton() {
@@ -106,11 +136,30 @@
     range.selectNodeContents(element);
     selection.removeAllRanges();
     selection.addRange(range);
+
+    element.dispatchEvent(new InputEvent("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+      inputType: "insertText",
+      data: value
+    }));
+
     document.execCommand("insertText", false, value);
+
+    if (!(element.innerText || element.textContent || "").trim()) {
+      element.textContent = value;
+    }
+
     element.dispatchEvent(new InputEvent("input", {
       bubbles: true,
       inputType: "insertText",
       data: value
+    }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent("keyup", {
+      bubbles: true,
+      key: " ",
+      code: "Space"
     }));
   }
 
@@ -124,18 +173,63 @@
     return null;
   }
 
+  function composerHasText(composer) {
+    if (!composer) return false;
+    const value = composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement
+      ? composer.value
+      : composer.innerText || composer.textContent || "";
+    return Boolean(String(value || "").trim());
+  }
+
+  function pressEnterToSend(composer) {
+    composer.focus();
+    const options = {
+      bubbles: true,
+      cancelable: true,
+      key: "Enter",
+      code: "Enter",
+      keyCode: 13,
+      which: 13
+    };
+    const down = composer.dispatchEvent(new KeyboardEvent("keydown", options));
+    composer.dispatchEvent(new KeyboardEvent("keypress", options));
+    composer.dispatchEvent(new KeyboardEvent("keyup", options));
+    return down;
+  }
+
   async function injectPrompt(prompt) {
     const composer = await waitFor(getComposer);
     if (!composer) throw new Error("ChatGPT composer was not found.");
+
     composer.focus();
     setNativeValue(composer, String(prompt || ""));
 
-    const sendButton = await waitFor(getSendButton, 5000, 100);
-    if (!sendButton) throw new Error("ChatGPT send button did not become available.");
+    const populated = await waitFor(() => composerHasText(composer), 2500, 80);
+    if (!populated) {
+      throw new Error("ChatGPT composer did not accept the injected prompt.");
+    }
 
     submittedByExtension = true;
     lastReportedAssistantText = getLatestAssistantText();
-    sendButton.click();
+
+    const sendButton = await waitFor(getSendButton, 3500, 100);
+    if (sendButton) {
+      sendButton.click();
+    } else {
+      pressEnterToSend(composer);
+    }
+
+    const started = await waitFor(
+      () => isGenerating() || getLatestAssistantText() !== lastReportedAssistantText || !composerHasText(composer),
+      4500,
+      120
+    );
+
+    if (!started) {
+      submittedByExtension = false;
+      throw new Error("ChatGPT prompt was populated but could not be submitted.");
+    }
+
     return true;
   }
 

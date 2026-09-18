@@ -75,6 +75,22 @@ Tutorial task JSON supports:
 
 Chrome/Edge 116+ is required because the recorder uses `tabCapture` from the service worker and an offscreen document for `MediaRecorder`.
 
+
+
+## Screenshot-aware browser control
+
+Autonomous audits and tutorials are screenshot-first. After every browser action, the extension captures the current viewport and attaches it to the ChatGPT conversation together with page text and a list of visible controls.
+
+The agent can act directly from what it sees using normalized viewport coordinates:
+
+```text
+BROWSER_ACTION: {"type":"click_point","xPct":0.22,"yPct":0.41}
+```
+
+`xPct` and `yPct` run from 0 to 1 across the visible viewport, so the action remains stable across screen sizes and display scaling. Before clicking, the extension resolves the real DOM control under that point and blocks hidden, disabled, non-interactive, or obvious state-changing controls.
+
+Detected controls also include normalized center coordinates as supporting evidence, but the screenshot is treated as the primary environment view.
+
 ## Read-only guard
 
 Audit automation is intentionally non-destructive. The operator blocks obvious state-changing actions such as Save, Submit, Delete, Approve, Pay, Book Now, Activate, Refund, Send, Invite and similar controls.
@@ -84,6 +100,7 @@ Safe audit actions currently include:
 - `inspect`
 - `click_text`
 - `click_selector`
+- `click_point` using screenshot-relative coordinates
 - `navigate` within the configured audit origin
 - `scroll`
 - `back`

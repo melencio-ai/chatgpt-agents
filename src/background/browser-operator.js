@@ -304,17 +304,26 @@ const SNAPSHOT_EXPRESSION = `(() => {
   ))
     .filter(visible)
     .slice(0, 160)
-    .map((el, index) => ({
-      index,
-      tag: el.tagName.toLowerCase(),
-      text: clean(el.innerText || el.value || el.getAttribute("aria-label") || el.title),
-      role: el.getAttribute("role") || "",
-      ariaLabel: el.getAttribute("aria-label") || "",
-      href: el.href || "",
-      type: el.type || "",
-      name: el.name || "",
-      disabled: Boolean(el.disabled || el.getAttribute("aria-disabled") === "true")
-    }));
+    .map((el, index) => {
+      const rect = el.getBoundingClientRect();
+      const centerX = rect.left + (rect.width / 2);
+      const centerY = rect.top + (rect.height / 2);
+      return {
+        index,
+        tag: el.tagName.toLowerCase(),
+        text: clean(el.innerText || el.value || el.getAttribute("aria-label") || el.title),
+        role: el.getAttribute("role") || "",
+        ariaLabel: el.getAttribute("aria-label") || "",
+        href: el.href || "",
+        type: el.type || "",
+        name: el.name || "",
+        disabled: Boolean(el.disabled || el.getAttribute("aria-disabled") === "true"),
+        center: {
+          xPct: innerWidth ? Number((centerX / innerWidth).toFixed(4)) : 0,
+          yPct: innerHeight ? Number((centerY / innerHeight).toFixed(4)) : 0
+        }
+      };
+    });
 
   return {
     url: location.href,
@@ -324,7 +333,8 @@ const SNAPSHOT_EXPRESSION = `(() => {
       height: innerHeight,
       scrollX,
       scrollY,
-      pageHeight: document.documentElement.scrollHeight
+      pageHeight: document.documentElement.scrollHeight,
+      devicePixelRatio: window.devicePixelRatio || 1
     },
     text: clean(document.body?.innerText).slice(0, 16000),
     interactiveElements: elements
@@ -523,6 +533,97 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
       if (!result.valid) throw new Error(`Selector does not point to a file input: ${selector}`);
       await sleep(tutorialDelay);
       return { ok: true, type: "upload_sample_csv", ...result };
+    }
+
+    if (action.type === "click_point") {
+      const viewport = await evaluate(debuggee, `(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight
+      }))()`);
+
+      const width = Math.max(1, Number(viewport?.width) || 1);
+      const height = Math.max(1, Number(viewport?.height) || 1);
+      const hasPct = Number.isFinite(Number(action.xPct)) && Number.isFinite(Number(action.yPct));
+      const x = hasPct
+        ? Math.max(0, Math.min(width - 1, Number(action.xPct) * width))
+        : Math.max(0, Math.min(width - 1, Number(action.x)));
+      const y = hasPct
+        ? Math.max(0, Math.min(height - 1, Number(action.yPct) * height))
+        : Math.max(0, Math.min(height - 1, Number(action.y)));
+
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error("click_point requires xPct/yPct between 0 and 1, or CSS-pixel x/y.");
+      }
+
+      const target = await evaluate(debuggee, `(() => {
+        const x = ${JSON.stringify(x)};
+        const y = ${JSON.stringify(y)};
+        const clean = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+        const raw = document.elementFromPoint(x, y);
+        if (!raw) return { found: false };
+
+        const clickable = raw.closest("a,button,[role='button'],[role='link'],summary,input,select,textarea,[tabindex]") || raw;
+        const style = getComputedStyle(clickable);
+        const rect = clickable.getBoundingClientRect();
+        const label = clean(
+          clickable.innerText ||
+          clickable.value ||
+          clickable.getAttribute("aria-label") ||
+          clickable.title ||
+          clickable.getAttribute("name") ||
+          clickable.tagName
+        );
+        const blocked = /\\b(save|submit|delete|remove|approve|reject|pay|purchase|confirm|create|invite|send|reset|activate|deactivate|cancel booking|book now|reserve|favorite|unfavorite|refund|void)\\b/i;
+        const interactive = Boolean(
+          clickable.matches("a,button,[role='button'],[role='link'],summary,input,select,textarea,[tabindex]")
+        );
+        const visible = style.visibility !== "hidden" &&
+          style.display !== "none" &&
+          rect.width > 0 &&
+          rect.height > 0;
+
+        return {
+          found: true,
+          interactive,
+          visible,
+          blocked: blocked.test(label),
+          label,
+          tag: clickable.tagName.toLowerCase(),
+          href: clickable.href || "",
+          disabled: Boolean(clickable.disabled || clickable.getAttribute("aria-disabled") === "true"),
+          x,
+          y
+        };
+      })()`);
+
+      if (!target?.found) throw new Error("No page element exists at that screenshot point.");
+      if (!target.visible) throw new Error("The screenshot point resolves to a hidden element.");
+      if (!target.interactive) throw new Error(`Screenshot point is not on an interactive control: "${target.label}".`);
+      if (target.disabled) throw new Error(`Screenshot point resolves to a disabled control: "${target.label}".`);
+      if (target.blocked) throw new Error(`Read-only audit blocked state-changing control: "${target.label}".`);
+
+      if (tutorialMode) {
+        await showTutorialCaption(debuggee, `Click ${target.label || "the highlighted control"}`);
+        await sleep(tutorialDelay);
+      }
+
+      await dispatchPointerClick(debuggee, x, y, {
+        visible: visualMouse,
+        label: agentLabel
+      });
+      if (tutorialMode) await sleep(tutorialDelay);
+
+      return {
+        ok: true,
+        type: "click_point",
+        x,
+        y,
+        xPct: Number((x / width).toFixed(4)),
+        yPct: Number((y / height).toFixed(4)),
+        label: target.label,
+        tag: target.tag,
+        href: target.href
+      };
     }
 
     if (action.type === "click_text") {
