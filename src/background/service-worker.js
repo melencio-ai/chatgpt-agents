@@ -9,12 +9,19 @@ import { parseTaskPayload } from "../tasks/parser.js";
 import { captureTaskEvidence } from "./evidence-capture.js";
 import { setVisualMouseVisibility } from "./browser-operator.js";
 import {
+  startTutorialRecording,
+  stopTutorialRecording,
+  handleTutorialRecordingReady,
+  handleTutorialRecordingError
+} from "./tutorial-recorder.js";
+import {
   startTask,
   continueTask,
   pauseTask,
   cancelTask,
   deleteTask,
   openTaskTab,
+  openBrowserTab,
   pauseAll,
   resumeAll,
   handlePageReady,
@@ -71,6 +78,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case MESSAGE_TYPES.OPEN_TASK_TAB:
           sendResponse({ ok: true, agent: await openTaskTab(message.taskId) });
+          break;
+        case MESSAGE_TYPES.OPEN_BROWSER_TAB:
+          sendResponse({ ok: true, agent: await openBrowserTab(message.taskId) });
+          break;
+        case MESSAGE_TYPES.START_TUTORIAL_RECORDING:
+          sendResponse({ ok: true, recording: await startTutorialRecording(message.taskId) });
+          break;
+        case MESSAGE_TYPES.STOP_TUTORIAL_RECORDING:
+          sendResponse({ ok: true, recording: await stopTutorialRecording(message.taskId) });
+          break;
+        case MESSAGE_TYPES.TUTORIAL_RECORDING_READY:
+          sendResponse({ ok: true, recording: await handleTutorialRecordingReady(message) });
+          break;
+        case MESSAGE_TYPES.TUTORIAL_RECORDING_ERROR:
+          sendResponse({ ok: true, recording: await handleTutorialRecordingError(message) });
           break;
         case MESSAGE_TYPES.CAPTURE_TASK_EVIDENCE:
           sendResponse({ ok: true, evidence: await captureTaskEvidence(message.taskId) });
