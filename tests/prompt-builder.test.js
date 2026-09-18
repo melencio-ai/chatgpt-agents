@@ -31,6 +31,21 @@ test("continuation prompt includes continuation number", () => {
   assert.match(buildContinuationPrompt(task, 3), /continuation 3/i);
 });
 
+test("audit prompt enforces read-only evidence-grounded behavior", () => {
+  const prompt = buildInitialPrompt({
+    ...task,
+    audit_mode: "read_only",
+    audit_target: { url: "https://app.dynk.ph/" },
+    audit_focus: ["Booking journey"],
+    deliverables: ["Findings"],
+    instructions: ["Do not save changes"]
+  });
+  assert.match(prompt, /READ-ONLY/);
+  assert.match(prompt, /app\.dynk\.ph/);
+  assert.match(prompt, /Do not invent/);
+  assert.match(prompt, /AGENT_STATUS: BLOCKED/);
+});
+
 test("parses agent directive", () => {
   assert.deepEqual(parseAgentDirective("Done.\nAGENT_STATUS: CONTINUE\nNEXT_ACTION: Test it\n"), {
     status: "CONTINUE",
