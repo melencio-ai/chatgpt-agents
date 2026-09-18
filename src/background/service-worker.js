@@ -50,7 +50,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         }
         case MESSAGE_TYPES.START_TASK:
-          sendResponse({ ok: true, agent: await startTask(message.taskId, message.mode) });
+          sendResponse({
+            ok: true,
+            agent: await startTask(message.taskId, message.mode, Boolean(message.forceRestart))
+          });
           break;
         case MESSAGE_TYPES.CONTINUE_TASK:
           sendResponse({ ok: true, agent: await continueTask(message.taskId) });
