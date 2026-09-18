@@ -316,6 +316,34 @@ const SNAPSHOT_EXPRESSION = `(() => {
       disabled: Boolean(el.disabled || el.getAttribute("aria-disabled") === "true")
     }));
 
+  const headings = Array.from(document.querySelectorAll("h1,h2,h3,[role='heading']"))
+    .filter(visible)
+    .map((el) => clean(el.innerText || el.getAttribute("aria-label")))
+    .filter(Boolean)
+    .slice(0, 24);
+
+  const selectedNavigation = Array.from(document.querySelectorAll(
+    "a[aria-current='page'],button[aria-current='page'],[role='tab'][aria-selected='true'],[role='menuitem'][aria-current='page']"
+  ))
+    .filter(visible)
+    .map((el) => clean(el.innerText || el.getAttribute("aria-label") || el.title))
+    .filter(Boolean)
+    .slice(0, 16);
+
+  const dialogs = Array.from(document.querySelectorAll("[role='dialog'],dialog[open]"))
+    .filter(visible)
+    .map((el) => clean(el.innerText || el.getAttribute("aria-label")).slice(0, 500))
+    .filter(Boolean)
+    .slice(0, 8);
+
+  const breadcrumbs = Array.from(document.querySelectorAll(
+    "[aria-label*='breadcrumb' i] a,[aria-label*='breadcrumb' i] span,nav.breadcrumb a,nav.breadcrumb span"
+  ))
+    .filter(visible)
+    .map((el) => clean(el.innerText || el.getAttribute("aria-label")))
+    .filter(Boolean)
+    .slice(0, 20);
+
   return {
     url: location.href,
     title: document.title,
@@ -327,6 +355,12 @@ const SNAPSHOT_EXPRESSION = `(() => {
       pageHeight: document.documentElement.scrollHeight
     },
     text: clean(document.body?.innerText).slice(0, 16000),
+    landmarks: {
+      headings,
+      selectedNavigation,
+      dialogs,
+      breadcrumbs
+    },
     interactiveElements: elements
   };
 })()`;
