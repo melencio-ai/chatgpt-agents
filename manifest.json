@@ -1,16 +1,14 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Agents Tab Manager",
-  "version": "0.5.1",
-  "description": "Run screenshot-aware autonomous browser agents, read-only audits, and tab-recorded tutorial guides.",
+  "version": "0.5.2",
+  "description": "Run screenshot-aware browser agents and record tutorial videos through Chrome DevTools Protocol.",
   "permissions": [
     "storage",
     "tabs",
     "scripting",
     "sidePanel",
     "debugger",
-    "activeTab",
-    "tabCapture",
     "offscreen",
     "downloads"
   ],

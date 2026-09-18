@@ -50,10 +50,12 @@ Workflow:
 1. Import the tutorial JSON and click **Start**.
 2. The agent prepares the target browser tab and pauses before the first tutorial action.
 3. Click **Record Tutorial**.
-4. Chrome captures the controlled tab while the agent moves the visible **Guide** pointer, shows action captions, and navigates the walkthrough.
+4. The extension records the controlled tab through the existing Chrome debugger session while the agent moves the visible **Guide** pointer, shows action captions, and navigates the walkthrough.
 5. Tutorial mode can attach an in-memory dummy CSV with `upload_sample_csv`; it never needs real customer data.
 6. The agent stays read-only and should stop before a final submit/import/save action.
 7. When the agent reaches `COMPLETE`, recording stops automatically and a `.webm` file is saved under `Downloads/ChatGPT Agents/`.
+
+Tutorial recordings are currently video-only. Tab audio is not captured by the CDP screencast recorder.
 
 Tutorial task JSON supports:
 
@@ -73,7 +75,7 @@ Tutorial task JSON supports:
 }
 ```
 
-Chrome/Edge 116+ is required because the recorder uses `tabCapture` from the service worker and an offscreen document for `MediaRecorder`.
+Tutorial video recording uses Chrome DevTools Protocol `Page.startScreencast` frames and an offscreen canvas/`MediaRecorder`. It does not require `activeTab` or `tabCapture` permission.
 
 
 

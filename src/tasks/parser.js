@@ -66,7 +66,7 @@ function normalizeTutorial(raw, projectDefaults) {
     return {
       enabled: true,
       title: String(raw.title || "Tutorial").trim(),
-      recordTabAudio: true,
+      recordTabAudio: false,
       pace: "guided"
     };
   }

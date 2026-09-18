@@ -5,8 +5,14 @@ import {
   getAgentByTaskId
 } from "../storage/repository.js";
 import { MESSAGE_TYPES } from "../shared/constants.js";
+import {
+  acquireDebuggerSession,
+  releaseDebuggerSession
+} from "./browser-operator.js";
 
 const OFFSCREEN_PATH = "src/offscreen/recorder.html";
+const DEFAULT_FPS = 10;
+const activeScreencasts = new Map();
 let creatingOffscreen = null;
 
 function nowIso() {
@@ -34,8 +40,8 @@ async function ensureOffscreenDocument() {
   if (!creatingOffscreen) {
     creatingOffscreen = chrome.offscreen.createDocument({
       url: OFFSCREEN_PATH,
-      reasons: ["USER_MEDIA", "BLOBS"],
-      justification: "Record the controlled browser tab as a local tutorial video."
+      reasons: ["BLOBS"],
+      justification: "Encode debugger screencast frames into a local tutorial video."
     }).finally(() => {
       creatingOffscreen = null;
     });
@@ -56,27 +62,67 @@ async function setRecording(taskId, patch) {
   });
 }
 
-async function focusTab(tabId) {
-  const tab = await chrome.tabs.get(tabId);
-  await chrome.tabs.update(tabId, { active: true });
-  if (tab.windowId !== undefined) {
-    await chrome.windows.update(tab.windowId, { focused: true });
-  }
-  await new Promise((resolve) => setTimeout(resolve, 150));
+function sessionForTab(tabId) {
+  return Array.from(activeScreencasts.values())
+    .find((item) => item.tabId === tabId) || null;
 }
 
-async function captureStreamId(tabId) {
-  await focusTab(tabId);
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (method !== "Page.screencastFrame" || !source?.tabId) return;
+
+  const session = sessionForTab(source.tabId);
+  if (!session) {
+    chrome.debugger.sendCommand(source, "Page.screencastFrameAck", {
+      sessionId: params.sessionId
+    }).catch(() => {});
+    return;
+  }
+
+  chrome.debugger.sendCommand(source, "Page.screencastFrameAck", {
+    sessionId: params.sessionId
+  }).catch(() => {});
+
+  const now = Date.now();
+  const minGap = 1000 / Math.max(1, session.fps || DEFAULT_FPS);
+  if (now - session.lastFrameAt < minGap) return;
+  session.lastFrameAt = now;
+
+  chrome.runtime.sendMessage({
+    target: "offscreen",
+    type: MESSAGE_TYPES.OFFSCREEN_TUTORIAL_FRAME,
+    recordingId: session.recordingId,
+    taskId: session.taskId,
+    data: params.data
+  }).catch(() => {});
+});
+
+chrome.debugger.onDetach.addListener((source, reason) => {
+  if (!source?.tabId) return;
+  const session = sessionForTab(source.tabId);
+  if (!session) return;
+
+  activeScreencasts.delete(session.taskId);
+  setRecording(session.taskId, {
+    status: "error",
+    error: `Debugger recording session ended unexpectedly: ${reason || "detached"}`
+  }).catch(() => {});
+
+  chrome.runtime.sendMessage({
+    target: "offscreen",
+    type: MESSAGE_TYPES.OFFSCREEN_STOP_TUTORIAL_RECORDING,
+    recordingId: session.recordingId
+  }).catch(() => {});
+});
+
+async function viewportSize(debuggee) {
   try {
-    return await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
-  } catch (firstError) {
-    try {
-      return await chrome.tabCapture.getMediaStreamId();
-    } catch {
-      throw new Error(
-        `Chrome could not start tab capture. Open the controlled browser tab, keep it active, then click Record Tutorial again. Original error: ${String(firstError?.message || firstError)}`
-      );
-    }
+    const metrics = await chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics");
+    const viewport = metrics?.cssVisualViewport || metrics?.cssLayoutViewport;
+    const width = Math.max(320, Math.round(Number(viewport?.clientWidth) || 1280));
+    const height = Math.max(240, Math.round(Number(viewport?.clientHeight) || 720));
+    return { width, height };
+  } catch {
+    return { width: 1280, height: 720 };
   }
 }
 
@@ -102,6 +148,8 @@ export async function startTutorialRecording(taskId) {
 
   const recordingId = `tutorial-${crypto.randomUUID()}`;
   const filename = safeFilename(task.tutorial.title || task.title);
+  const fps = Math.max(4, Math.min(15, Number(task.tutorial.fps) || DEFAULT_FPS));
+
   await setRecording(taskId, {
     id: recordingId,
     status: "starting",
@@ -110,30 +158,96 @@ export async function startTutorialRecording(taskId) {
     startedAt: nowIso(),
     stoppedAt: null,
     completedAt: null,
-    error: ""
+    error: "",
+    source: "cdp-screencast",
+    audioIncluded: false
   });
+
+  let debuggee = null;
 
   try {
     await ensureOffscreenDocument();
-    const streamId = await captureStreamId(agent.auditTabId);
-    const response = await chrome.runtime.sendMessage({
+    debuggee = await acquireDebuggerSession(agent.auditTabId);
+    const { width, height } = await viewportSize(debuggee);
+
+    const offscreen = await chrome.runtime.sendMessage({
       target: "offscreen",
       type: MESSAGE_TYPES.OFFSCREEN_START_TUTORIAL_RECORDING,
-      streamId,
       recordingId,
       taskId,
       filename,
-      includeAudio: task.tutorial.recordTabAudio !== false
+      width,
+      height,
+      fps
     });
-    if (!response?.ok) throw new Error(response?.error || "Offscreen recorder failed to start.");
+    if (!offscreen?.ok) {
+      throw new Error(offscreen?.error || "Offscreen recorder failed to start.");
+    }
+
+    activeScreencasts.set(taskId, {
+      taskId,
+      recordingId,
+      tabId: agent.auditTabId,
+      debuggee,
+      fps,
+      lastFrameAt: 0
+    });
+
+    await chrome.debugger.sendCommand(debuggee, "Page.startScreencast", {
+      format: "jpeg",
+      quality: 68,
+      maxWidth: Math.min(1920, width),
+      maxHeight: Math.min(1080, height),
+      everyNthFrame: 1
+    });
+
+    try {
+      const initial = await chrome.debugger.sendCommand(debuggee, "Page.captureScreenshot", {
+        format: "jpeg",
+        quality: 68,
+        fromSurface: true,
+        captureBeyondViewport: false
+      });
+      if (initial?.data) {
+        await chrome.runtime.sendMessage({
+          target: "offscreen",
+          type: MESSAGE_TYPES.OFFSCREEN_TUTORIAL_FRAME,
+          recordingId,
+          taskId,
+          data: initial.data
+        });
+      }
+    } catch {
+      // Screencast frames will still populate the recorder.
+    }
 
     await setRecording(taskId, {
       status: "recording",
-      mimeType: response.mimeType || "video/webm"
+      mimeType: offscreen.mimeType || "video/webm",
+      width,
+      height,
+      fps
     });
 
     return (await getState()).recordings[taskId];
   } catch (error) {
+    activeScreencasts.delete(taskId);
+
+    if (debuggee) {
+      try {
+        await chrome.debugger.sendCommand(debuggee, "Page.stopScreencast");
+      } catch {
+        // Screencast may not have started.
+      }
+      await releaseDebuggerSession(agent.auditTabId);
+    }
+
+    chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: MESSAGE_TYPES.OFFSCREEN_STOP_TUTORIAL_RECORDING,
+      recordingId
+    }).catch(() => {});
+
     await setRecording(taskId, {
       status: "error",
       error: String(error?.message || error)
@@ -151,6 +265,17 @@ export async function stopTutorialRecording(taskId) {
 
   await ensureOffscreenDocument();
   await setRecording(taskId, { status: "stopping", stoppedAt: nowIso() });
+
+  const session = activeScreencasts.get(taskId);
+  if (session) {
+    activeScreencasts.delete(taskId);
+    try {
+      await chrome.debugger.sendCommand(session.debuggee, "Page.stopScreencast");
+    } catch {
+      // The target may have already stopped producing frames.
+    }
+    await releaseDebuggerSession(session.tabId);
+  }
 
   const response = await chrome.runtime.sendMessage({
     target: "offscreen",
@@ -211,6 +336,18 @@ export async function handleTutorialRecordingReady(message) {
 export async function handleTutorialRecordingError(message) {
   const taskId = String(message.taskId || "");
   if (!taskId) return null;
+
+  const session = activeScreencasts.get(taskId);
+  if (session) {
+    activeScreencasts.delete(taskId);
+    try {
+      await chrome.debugger.sendCommand(session.debuggee, "Page.stopScreencast");
+    } catch {
+      // Ignore cleanup errors.
+    }
+    await releaseDebuggerSession(session.tabId);
+  }
+
   await setRecording(taskId, {
     status: "error",
     error: String(message.error || "Tutorial recording failed.")
