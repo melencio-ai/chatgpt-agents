@@ -170,3 +170,45 @@ h1 { margin: 0; font-size: 15px; letter-spacing: -.01em; }
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+
+
+.button.record {
+  border-color: var(--danger);
+  color: var(--danger);
+  font-weight: 700;
+}
+.button.recording {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: light-dark(#ffffff, #111318);
+  font-weight: 700;
+}
+.tutorial-badge {
+  font-weight: 800;
+  letter-spacing: .06em;
+}
+.recording-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-transform: uppercase;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.recording-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.recording-state.starting,
+.recording-state.recording,
+.recording-state.stopping {
+  color: var(--danger);
+}
+.recording-state.recording i {
+  animation: runtime-pulse 1s ease-in-out infinite;
+}
+.recording-state.complete {
+  color: light-dark(#0f766e, #5eead4);
+}
