@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Agents Tab Manager",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Run one autonomous ChatGPT browser agent at a time for task execution and read-only app audits.",
   "permissions": ["storage", "tabs", "scripting", "sidePanel", "debugger"],
   "host_permissions": ["https://chatgpt.com/*"],
