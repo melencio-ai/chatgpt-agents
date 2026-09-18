@@ -48,6 +48,10 @@ function isAutonomousAudit(task) {
   return Boolean(task?.audit_target?.url && String(task.audit_mode || "").toLowerCase().includes("read"));
 }
 
+function isTutorialTask(task) {
+  return Boolean(task?.tutorial?.enabled);
+}
+
 async function patchAgent(agentId, patch) {
   return updateState((state) => {
     const existing = state.agents[agentId];
@@ -284,9 +288,10 @@ async function startAutonomousAudit(agent, task) {
 
   await waitForTabSettled(auditTab.id);
   const state = await getState();
+  const tutorialMode = isTutorialTask(task);
   const observation = await observeAuditPage(auditTab.id, {
     visualMouse: state.settings.visualMouse !== false,
-    agentLabel: "Agent"
+    agentLabel: tutorialMode ? "Guide" : "Agent"
   });
   await attachObservation(
     { ...agent, auditTabId: auditTab.id },
@@ -400,7 +405,9 @@ async function continueAutonomousAudit(agent, task, directive) {
       directive.browserAction,
       {
         visualMouse: state.settings.visualMouse !== false,
-        agentLabel: "Agent"
+        agentLabel: isTutorialTask(task) ? "Guide" : "Agent",
+        tutorialMode: isTutorialTask(task),
+        tutorialPace: task.tutorial?.pace || "guided"
       }
     );
 
@@ -422,7 +429,7 @@ async function continueAutonomousAudit(agent, task, directive) {
     auditTab = auditTab || await ensureAuditTab(task.audit_target.url, current.auditTabId);
     const observation = await observeAuditPage(auditTab.id, {
       visualMouse: state.settings.visualMouse !== false,
-      agentLabel: "Agent"
+      agentLabel: isTutorialTask(task) ? "Guide" : "Agent"
     });
     const nextStep = currentStep + 1;
     await attachObservation(
