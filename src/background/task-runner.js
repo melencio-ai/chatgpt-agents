@@ -551,6 +551,44 @@ export async function cancelTask(taskId) {
   return (await getState()).agents[agent.id];
 }
 
+export async function deleteTask(taskId) {
+  const state = await getState();
+  const task = state.tasks[taskId];
+  if (!task) return false;
+
+  const taskAgents = Object.values(state.agents).filter((agent) => agent.taskId === taskId);
+
+  for (const agent of taskAgents) {
+    if (agent.tabId && await tabExists(agent.tabId)) {
+      try {
+        await chrome.tabs.sendMessage(agent.tabId, { type: MESSAGE_TYPES.STOP_GENERATION });
+      } catch {
+        // The content script may no longer be available.
+      }
+      try {
+        await chrome.tabs.remove(agent.tabId);
+      } catch {
+        // Tab may already be closed.
+      }
+    }
+  }
+
+  await updateState((draft) => {
+    delete draft.tasks[taskId];
+
+    for (const [agentId, agent] of Object.entries(draft.agents)) {
+      if (agent.taskId === taskId) delete draft.agents[agentId];
+    }
+
+    for (const [runId, run] of Object.entries(draft.runs)) {
+      if (run.taskId === taskId) delete draft.runs[runId];
+    }
+  });
+
+  await pumpQueue();
+  return true;
+}
+
 export async function openTaskTab(taskId) {
   const agent = await getAgentByTaskId(taskId);
   if (!agent?.tabId || !(await tabExists(agent.tabId))) throw new Error("No active ChatGPT tab for this task.");
