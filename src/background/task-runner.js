@@ -22,6 +22,7 @@ import {
   observeAuditPage,
   executeBrowserAction
 } from "./browser-operator.js";
+import { stopTutorialRecording } from "./tutorial-recorder.js";
 
 const ACTIVE_STATES = new Set([
   AGENT_STATES.CREATING_TAB,
@@ -355,6 +356,18 @@ async function finishAgent(agent, directive) {
       };
     }
   });
+
+  const completedTask = await getTask(agent.taskId);
+  const completedState = await getState();
+  const recording = completedState.recordings?.[agent.taskId];
+  if (isTutorialTask(completedTask) && ["starting", "recording"].includes(recording?.status)) {
+    try {
+      await stopTutorialRecording(agent.taskId);
+    } catch {
+      // Preserve task completion even if recording finalization fails.
+    }
+  }
+
   await pumpQueue();
 }
 
@@ -603,6 +616,11 @@ export async function deleteTask(taskId) {
   const task = state.tasks[taskId];
   if (!task) return false;
 
+  const recording = state.recordings?.[taskId];
+  if (["starting", "recording", "stopping"].includes(recording?.status)) {
+    throw new Error("Stop the tutorial recording before deleting this task.");
+  }
+
   const taskAgents = Object.values(state.agents).filter((agent) => agent.taskId === taskId);
 
   for (const agent of taskAgents) {
@@ -630,6 +648,8 @@ export async function deleteTask(taskId) {
     for (const [runId, run] of Object.entries(draft.runs)) {
       if (run.taskId === taskId) delete draft.runs[runId];
     }
+
+    if (draft.recordings) delete draft.recordings[taskId];
   });
 
   await pumpQueue();
