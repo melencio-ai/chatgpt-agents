@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ChatGPT Agents</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>ChatGPT Agents</h1>
+        <p id="summary">0 tasks</p>
+      </div>
+      <label class="button primary compact" for="file-input">Import JSON</label>
+      <input id="file-input" type="file" accept="application/json,.json" hidden />
+    </header>
+
+    <section class="toolbar" aria-label="Agent controls">
+      <label>
+        <span>Mode</span>
+        <select id="default-mode">
+          <option value="manual">Manual</option>
+          <option value="assisted">Assisted</option>
+          <option value="auto">Auto</option>
+        </select>
+      </label>
+      <label>
+        <span>Parallel</span>
+        <input id="max-concurrent" type="number" min="1" max="10" step="1" />
+      </label>
+      <label>
+        <span>Auto loops</span>
+        <input id="max-continuations" type="number" min="1" max="50" step="1" />
+      </label>
+    </section>
+
+    <div class="global-actions">
+      <button id="pause-all" class="button secondary">Pause all</button>
+      <button id="resume-all" class="button secondary">Resume all</button>
+    </div>
+
+    <div id="notice" class="notice" role="status" hidden></div>
+    <main id="task-list" class="task-list"></main>
+
+    <template id="empty-template">
+      <section class="empty-state">
+        <strong>No tasks loaded</strong>
+        <p>Import the task JSON file to create your agent queue.</p>
+      </section>
+    </template>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
