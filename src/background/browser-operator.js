@@ -110,7 +110,7 @@ function visualMouseExpression({ visible = true, x = null, y = null, label = "Ag
         "width:1px",
         "height:1px",
         "transform:translate3d(28px,28px,0)",
-        "transition:transform 180ms cubic-bezier(.2,.8,.2,1)",
+        "transition:transform 45ms linear",
         "filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))"
       ].join(";");
       root.innerHTML = ${JSON.stringify(markup)};
@@ -139,7 +139,7 @@ function visualMouseExpression({ visible = true, x = null, y = null, label = "Ag
             { opacity: 0.95, transform: "scale(.45)" },
             { opacity: 0, transform: "scale(1.55)" }
           ],
-          { duration: 340, easing: "ease-out" }
+          { duration: 700, easing: "ease-out" }
         );
       }
     }
@@ -151,20 +151,64 @@ async function updateVisualMouse(debuggee, options = {}) {
   return evaluate(debuggee, visualMouseExpression(options));
 }
 
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function dispatchPointerMove(debuggee, x, y, { visible = true, label = "Agent" } = {}) {
-  await updateVisualMouse(debuggee, { visible, x, y, label });
-  await chrome.debugger.sendCommand(debuggee, "Input.dispatchMouseEvent", {
-    type: "mouseMoved",
-    x,
-    y,
-    button: "none"
-  });
-  if (visible) await new Promise((resolve) => setTimeout(resolve, 180));
+  const current = await updateVisualMouse(debuggee, { visible, label });
+  const startX = Number(current?.x) || 28;
+  const startY = Number(current?.y) || 28;
+  const targetX = Number(x);
+  const targetY = Number(y);
+
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+    throw new Error("Pointer target coordinates are invalid.");
+  }
+
+  const distance = Math.hypot(targetX - startX, targetY - startY);
+  const steps = visible
+    ? Math.max(8, Math.min(20, Math.ceil(distance / 55)))
+    : 1;
+
+  for (let step = 1; step <= steps; step += 1) {
+    const progress = step / steps;
+    const eased = progress < 0.5
+      ? 2 * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    const nextX = startX + ((targetX - startX) * eased);
+    const nextY = startY + ((targetY - startY) * eased);
+
+    await updateVisualMouse(debuggee, {
+      visible,
+      x: nextX,
+      y: nextY,
+      label: visible ? `${label} • moving` : label
+    });
+    await chrome.debugger.sendCommand(debuggee, "Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: nextX,
+      y: nextY,
+      button: "none"
+    });
+
+    if (visible) await sleep(42);
+  }
+
+  await updateVisualMouse(debuggee, { visible, x: targetX, y: targetY, label });
+  if (visible) await sleep(120);
 }
 
 async function dispatchPointerClick(debuggee, x, y, { visible = true, label = "Agent" } = {}) {
   await dispatchPointerMove(debuggee, x, y, { visible, label });
-  await updateVisualMouse(debuggee, { visible, x, y, label, click: true });
+  await updateVisualMouse(debuggee, {
+    visible,
+    x,
+    y,
+    label: visible ? `${label} • click` : label,
+    click: true
+  });
+
   await chrome.debugger.sendCommand(debuggee, "Input.dispatchMouseEvent", {
     type: "mousePressed",
     x,
@@ -173,6 +217,9 @@ async function dispatchPointerClick(debuggee, x, y, { visible = true, label = "A
     buttons: 1,
     clickCount: 1
   });
+
+  if (visible) await sleep(140);
+
   await chrome.debugger.sendCommand(debuggee, "Input.dispatchMouseEvent", {
     type: "mouseReleased",
     x,
@@ -181,6 +228,11 @@ async function dispatchPointerClick(debuggee, x, y, { visible = true, label = "A
     buttons: 0,
     clickCount: 1
   });
+
+  if (visible) {
+    await sleep(220);
+    await updateVisualMouse(debuggee, { visible, x, y, label });
+  }
 }
 
 export async function setVisualMouseVisibility(tabId, visible, label = "Agent") {
@@ -333,12 +385,24 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
 
     if (action.type === "scroll") {
       const deltaY = Math.max(-1800, Math.min(1800, Number(action.deltaY) || 700));
-      const pointer = await updateVisualMouse(debuggee, {
+      const viewport = await evaluate(debuggee, `(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight
+      }))()`);
+      const x = Math.max(40, Math.round((Number(viewport?.width) || 800) * 0.78));
+      const y = Math.max(40, Math.round((Number(viewport?.height) || 600) * 0.68));
+
+      await dispatchPointerMove(debuggee, x, y, {
         visible: visualMouse,
         label: agentLabel
       });
-      const x = Number(pointer?.x) || 28;
-      const y = Number(pointer?.y) || 28;
+      await updateVisualMouse(debuggee, {
+        visible: visualMouse,
+        x,
+        y,
+        label: visualMouse ? `${agentLabel} • scroll` : agentLabel
+      });
+
       await chrome.debugger.sendCommand(debuggee, "Input.dispatchMouseEvent", {
         type: "mouseWheel",
         x,
@@ -346,11 +410,18 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
         deltaX: 0,
         deltaY
       });
-      await new Promise((resolve) => setTimeout(resolve, 180));
+      if (visualMouse) await sleep(320);
+
       const value = await evaluate(debuggee, `(() => ({
         scrollY: window.scrollY,
         pageHeight: document.documentElement.scrollHeight
       }))()`);
+      await updateVisualMouse(debuggee, {
+        visible: visualMouse,
+        x,
+        y,
+        label: agentLabel
+      });
       return { ok: true, type: "scroll", ...value };
     }
 
