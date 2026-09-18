@@ -609,6 +609,17 @@ export async function openTaskTab(taskId) {
   return agent;
 }
 
+export async function openBrowserTab(taskId) {
+  const agent = await getAgentByTaskId(taskId);
+  if (!agent?.auditTabId || !(await tabExists(agent.auditTabId))) {
+    throw new Error("No controlled browser tab is available yet. Start the task first.");
+  }
+  const tab = await chrome.tabs.get(agent.auditTabId);
+  await chrome.tabs.update(agent.auditTabId, { active: true });
+  if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
+  return agent;
+}
+
 export async function pauseAll() {
   const state = await getState();
   for (const taskId of new Set(Object.values(state.agents).filter((a) => ACTIVE_STATES.has(a.state)).map((a) => a.taskId))) {
