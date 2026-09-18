@@ -201,6 +201,26 @@ export async function startTutorialRecording(taskId) {
       everyNthFrame: 1
     });
 
+    try {
+      const initial = await chrome.debugger.sendCommand(debuggee, "Page.captureScreenshot", {
+        format: "jpeg",
+        quality: 68,
+        fromSurface: true,
+        captureBeyondViewport: false
+      });
+      if (initial?.data) {
+        await chrome.runtime.sendMessage({
+          target: "offscreen",
+          type: MESSAGE_TYPES.OFFSCREEN_TUTORIAL_FRAME,
+          recordingId,
+          taskId,
+          data: initial.data
+        });
+      }
+    } catch {
+      // Screencast frames will still populate the recorder.
+    }
+
     await setRecording(taskId, {
       status: "recording",
       mimeType: offscreen.mimeType || "video/webm",
