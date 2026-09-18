@@ -6,6 +6,7 @@ import {
   upsertTasks
 } from "../storage/repository.js";
 import { parseTaskPayload } from "../tasks/parser.js";
+import { captureTaskEvidence } from "./evidence-capture.js";
 import {
   startTask,
   continueTask,
@@ -62,6 +63,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case MESSAGE_TYPES.OPEN_TASK_TAB:
           sendResponse({ ok: true, agent: await openTaskTab(message.taskId) });
+          break;
+        case MESSAGE_TYPES.CAPTURE_TASK_EVIDENCE:
+          sendResponse({ ok: true, evidence: await captureTaskEvidence(message.taskId) });
           break;
         case MESSAGE_TYPES.UPDATE_SETTINGS:
           sendResponse({ ok: true, state: await setSettings(message.patch || {}) });
