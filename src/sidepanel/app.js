@@ -43,6 +43,55 @@ function agentForTask(taskId) {
     .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0] || null;
 }
 
+function runForAgent(agent) {
+  if (!state || !agent?.runId) return null;
+  return state.runs?.[agent.runId] || null;
+}
+
+function isTerminalState(value) {
+  return [
+    AGENT_STATES.COMPLETE,
+    AGENT_STATES.ERROR,
+    AGENT_STATES.CANCELLED
+  ].includes(value);
+}
+
+function formatRuntime(ms) {
+  const totalSeconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds]
+    .map((value) => String(value).padStart(2, "0"))
+    .join(":");
+}
+
+function runtimeForAgent(agent) {
+  if (!agent) return null;
+
+  const run = runForAgent(agent);
+  const startedAt = run?.startedAt || agent.createdAt;
+  if (!startedAt) return null;
+
+  const startMs = Date.parse(startedAt);
+  if (!Number.isFinite(startMs)) return null;
+
+  let endMs = Date.now();
+  if (run?.completedAt) {
+    endMs = Date.parse(run.completedAt);
+  } else if (isTerminalState(agent.state) && agent.updatedAt) {
+    endMs = Date.parse(agent.updatedAt);
+  }
+
+  if (!Number.isFinite(endMs)) endMs = Date.now();
+
+  return {
+    elapsed: formatRuntime(endMs - startMs),
+    live: !isTerminalState(agent.state) && agent.state !== AGENT_STATES.PAUSED,
+    paused: agent.state === AGENT_STATES.PAUSED
+  };
+}
+
 function friendlyStatus(agent, task) {
   if (!agent) return task.status || "Ready";
   return agent.state.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (char) => char.toUpperCase());
@@ -79,6 +128,7 @@ function renderTask(task) {
   const total = (task.subtasks || []).length;
   const responsePreview = agent?.lastResponse ? agent.lastResponse.slice(-700) : "";
   const auditTarget = targetLabel(task);
+  const runtime = runtimeForAgent(agent);
 
   return `
     <article class="task-card">
@@ -103,6 +153,7 @@ function renderTask(task) {
       <div class="task-body">
         <div class="meta">
           <span>${total ? `${completed}/${total} subtasks` : "No subtasks"}</span>
+          ${runtime ? `<span class="runtime ${runtime.live ? "live" : runtime.paused ? "paused" : "finished"}"><i></i>${runtime.live ? "LIVE" : runtime.paused ? "PAUSED" : "RUNTIME"} · ${runtime.elapsed}</span>` : ""}
           ${auditTarget ? `<span>browser: ${esc(auditTarget)}</span>` : ""}
           ${agent?.browserStepCount ? `<span>step ${agent.browserStepCount}</span>` : ""}
         </div>
@@ -234,3 +285,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 refresh().catch((error) => flash(`Extension runtime failed: ${error.message}`, true));
+
+setInterval(() => {
+  if (!state) return;
+  const hasRunningAgent = Object.values(state.agents || {}).some((agent) =>
+    !isTerminalState(agent.state) && agent.state !== AGENT_STATES.PAUSED
+  );
+  if (hasRunningAgent) render();
+}, 1000);
