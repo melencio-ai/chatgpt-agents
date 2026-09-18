@@ -3,7 +3,8 @@ import {
   getState,
   initializeState,
   setSettings,
-  upsertTasks
+  upsertTasks,
+  getAgentByTaskId
 } from "../storage/repository.js";
 import { parseTaskPayload } from "../tasks/parser.js";
 import { captureTaskEvidence } from "./evidence-capture.js";
@@ -82,9 +83,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case MESSAGE_TYPES.OPEN_BROWSER_TAB:
           sendResponse({ ok: true, agent: await openBrowserTab(message.taskId) });
           break;
-        case MESSAGE_TYPES.START_TUTORIAL_RECORDING:
-          sendResponse({ ok: true, recording: await startTutorialRecording(message.taskId) });
+        case MESSAGE_TYPES.START_TUTORIAL_RECORDING: {
+          const recording = await startTutorialRecording(message.taskId);
+          const agent = await getAgentByTaskId(message.taskId);
+          if (agent?.tutorialAwaitingRecording) {
+            await continueTask(message.taskId);
+          }
+          sendResponse({ ok: true, recording });
           break;
+        }
         case MESSAGE_TYPES.STOP_TUTORIAL_RECORDING:
           sendResponse({ ok: true, recording: await stopTutorialRecording(message.taskId) });
           break;
