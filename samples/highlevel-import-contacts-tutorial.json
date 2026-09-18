@@ -14,7 +14,7 @@
   },
   "audit_mode": "tutorial read-only",
   "audit_target": {
-    "url": "https://app.gohighlevel.com/"
+    "url": "https://app.gohighlevel.com/v2/location/jAXIPxsJm9Y4T3o8saV3/dashboard"
   },
   "audit_focus": [
     "Contacts navigation",
