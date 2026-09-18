@@ -53,23 +53,49 @@ export async function ensureAuditTab(targetUrlValue, preferredTabId = null) {
   return waitForTabComplete(created.id);
 }
 
-async function withDebugger(tabId, fn) {
+const debuggerSessions = new Map();
+
+export async function acquireDebuggerSession(tabId) {
+  const existing = debuggerSessions.get(tabId);
+  if (existing) {
+    existing.refs += 1;
+    return existing.debuggee;
+  }
+
   const debuggee = { tabId };
-  let attached = false;
+  await chrome.debugger.attach(debuggee, "1.3");
+  await chrome.debugger.sendCommand(debuggee, "Page.enable");
+  await chrome.debugger.sendCommand(debuggee, "Runtime.enable");
+
+  debuggerSessions.set(tabId, {
+    debuggee,
+    refs: 1
+  });
+
+  return debuggee;
+}
+
+export async function releaseDebuggerSession(tabId) {
+  const existing = debuggerSessions.get(tabId);
+  if (!existing) return;
+
+  existing.refs -= 1;
+  if (existing.refs > 0) return;
+
+  debuggerSessions.delete(tabId);
   try {
-    await chrome.debugger.attach(debuggee, "1.3");
-    attached = true;
-    await chrome.debugger.sendCommand(debuggee, "Page.enable");
-    await chrome.debugger.sendCommand(debuggee, "Runtime.enable");
+    await chrome.debugger.detach(existing.debuggee);
+  } catch {
+    // Target may already be gone.
+  }
+}
+
+async function withDebugger(tabId, fn) {
+  const debuggee = await acquireDebuggerSession(tabId);
+  try {
     return await fn(debuggee);
   } finally {
-    if (attached) {
-      try {
-        await chrome.debugger.detach(debuggee);
-      } catch {
-        // Target may have disappeared.
-      }
-    }
+    await releaseDebuggerSession(tabId);
   }
 }
 
