@@ -14,8 +14,14 @@ import {
 import {
   buildInitialPrompt,
   buildContinuationPrompt,
+  buildBrowserObservationPrompt,
   parseAgentDirective
 } from "../tasks/prompt-builder.js";
+import {
+  ensureAuditTab,
+  observeAuditPage,
+  executeBrowserAction
+} from "./browser-operator.js";
 
 const ACTIVE_STATES = new Set([
   AGENT_STATES.CREATING_TAB,
@@ -26,6 +32,7 @@ const ACTIVE_STATES = new Set([
   AGENT_STATES.GENERATING,
   AGENT_STATES.RESPONSE_READY,
   AGENT_STATES.EVALUATING,
+  AGENT_STATES.BROWSER_ACTING,
   AGENT_STATES.NEEDS_USER
 ]);
 
@@ -35,6 +42,10 @@ function nowIso() {
 
 function makeId(prefix) {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function isAutonomousAudit(task) {
+  return Boolean(task?.audit_target?.url && String(task.audit_mode || "").toLowerCase().includes("read"));
 }
 
 async function patchAgent(agentId, patch) {
@@ -63,6 +74,22 @@ async function tabExists(tabId) {
   }
 }
 
+async function waitForTabSettled(tabId, timeoutMs = 12000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.status === "complete") {
+        await new Promise((resolve) => setTimeout(resolve, 450));
+        return;
+      }
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 async function createRun(taskId, mode) {
   const agentId = makeId("agent");
   const runId = makeId("run");
@@ -74,12 +101,15 @@ async function createRun(taskId, mode) {
       taskId,
       runId,
       tabId: null,
+      auditTabId: null,
       conversationUrl: "",
       mode,
       state: AGENT_STATES.QUEUED,
       continuationCount: 0,
+      browserStepCount: 0,
       lastResponse: "",
       lastDirective: null,
+      lastBrowserObservation: null,
       error: "",
       createdAt: timestamp,
       updatedAt: timestamp
@@ -119,7 +149,10 @@ async function launchAgent(agentId) {
 
 export async function pumpQueue() {
   const state = await getState();
-  const limit = Math.max(1, Number(state.settings.maxConcurrentAgents) || 1);
+
+  // Deliberately one browser-owning agent at a time. This prevents multiple
+  // audit conversations from fighting over the same authenticated app tab.
+  const limit = 1;
   let available = limit - Object.values(state.agents).filter((agent) => ACTIVE_STATES.has(agent.state)).length;
   if (available <= 0) return;
 
@@ -144,9 +177,10 @@ export async function startTask(taskId, requestedMode) {
   }
 
   const state = await getState();
-  const mode = Object.values(EXECUTION_MODES).includes(requestedMode)
-    ? requestedMode
-    : state.settings.defaultMode;
+  const mode = isAutonomousAudit(task)
+    ? EXECUTION_MODES.AUTO
+    : (Object.values(EXECUTION_MODES).includes(requestedMode) ? requestedMode : state.settings.defaultMode);
+
   const agentId = await createRun(taskId, mode);
   await pumpQueue();
   const latest = await getState();
@@ -174,6 +208,54 @@ async function injectPrompt(agent, prompt) {
   }
 }
 
+async function attachObservation(agent, task, observation, stepNumber, actionResult = null, includeTaskBrief = false) {
+  if (observation?.screenshot) {
+    const filename = `audit-${task.id}-step-${stepNumber}.jpg`;
+    const response = await chrome.tabs.sendMessage(agent.tabId, {
+      type: MESSAGE_TYPES.ATTACH_IMAGE,
+      base64: observation.screenshot,
+      mimeType: "image/jpeg",
+      filename,
+      sourceUrl: observation?.snapshot?.url || task.audit_target?.url || ""
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not attach browser screenshot to ChatGPT.");
+    }
+  }
+
+  const browserPrompt = buildBrowserObservationPrompt(task, observation, stepNumber, actionResult);
+  const prompt = includeTaskBrief
+    ? `${buildInitialPrompt(task)}\n\n--- CURRENT BROWSER STATE ---\n\n${browserPrompt}`
+    : browserPrompt;
+
+  await patchAgent(agent.id, {
+    browserStepCount: stepNumber,
+    lastBrowserObservation: {
+      url: observation?.snapshot?.url || "",
+      title: observation?.snapshot?.title || "",
+      capturedAt: nowIso()
+    }
+  });
+
+  await injectPrompt(agent, prompt);
+}
+
+async function startAutonomousAudit(agent, task) {
+  const auditTab = await ensureAuditTab(task.audit_target.url, agent.auditTabId);
+  await patchAgent(agent.id, { auditTabId: auditTab.id, state: AGENT_STATES.BROWSER_ACTING });
+
+  await waitForTabSettled(auditTab.id);
+  const observation = await observeAuditPage(auditTab.id);
+  await attachObservation(
+    { ...agent, auditTabId: auditTab.id },
+    task,
+    observation,
+    1,
+    null,
+    true
+  );
+}
+
 export async function handlePageReady(tabId, pageUrl) {
   const agent = await getAgentByTabId(tabId);
   if (!agent || TERMINAL_AGENT_STATES.has(agent.state) || agent.state === AGENT_STATES.CANCELLED) return;
@@ -182,14 +264,25 @@ export async function handlePageReady(tabId, pageUrl) {
   await patchAgent(agent.id, { conversationUrl });
   await patchTask(agent.taskId, { chatgpt_url: conversationUrl });
 
-  // ChatGPT changes the URL after a new conversation is created. That route
-  // change must update the binding without re-sending the initial prompt.
   if (![AGENT_STATES.CREATING_TAB, AGENT_STATES.WAITING_FOR_CHATGPT].includes(agent.state)) return;
 
   await patchAgent(agent.id, { state: AGENT_STATES.READY });
   if (agent.mode === EXECUTION_MODES.MANUAL) return;
 
   const task = await getTask(agent.taskId);
+
+  if (isAutonomousAudit(task)) {
+    try {
+      await startAutonomousAudit({ ...agent, tabId, conversationUrl }, task);
+    } catch (error) {
+      await patchAgent(agent.id, {
+        state: AGENT_STATES.NEEDS_USER,
+        error: `Browser audit could not start: ${String(error?.message || error)}`
+      });
+    }
+    return;
+  }
+
   await injectPrompt({ ...agent, tabId, conversationUrl }, buildInitialPrompt(task));
 }
 
@@ -199,6 +292,106 @@ export async function markGenerating(tabId) {
   await patchAgent(agent.id, { state: AGENT_STATES.GENERATING });
 }
 
+async function finishAgent(agent, directive) {
+  await updateState((state) => {
+    const current = state.agents[agent.id];
+    if (current) state.agents[agent.id] = { ...current, state: AGENT_STATES.COMPLETE, updatedAt: nowIso() };
+    const run = state.runs[agent.runId];
+    if (run) state.runs[agent.runId] = { ...run, status: AGENT_STATES.COMPLETE, completedAt: nowIso() };
+    const task = state.tasks[agent.taskId];
+    if (task) {
+      state.tasks[agent.taskId] = {
+        ...task,
+        status: "Done",
+        next_action: directive.nextAction || task.next_action,
+        updatedAt: nowIso()
+      };
+    }
+  });
+  await pumpQueue();
+}
+
+async function continueAutonomousAudit(agent, task, directive) {
+  const state = await getState();
+  const current = state.agents[agent.id];
+  if (!current) return;
+
+  const maxSteps = Math.max(1, Number(state.settings.maxAutoContinuations) || 40);
+  const currentStep = Number(current.browserStepCount || 1);
+  if (currentStep >= maxSteps) {
+    await patchAgent(agent.id, {
+      state: AGENT_STATES.NEEDS_USER,
+      error: `Autonomous browser step limit (${maxSteps}) reached.`
+    });
+    return;
+  }
+
+  if (directive.browserAction === undefined) {
+    const repairPrompt = `Your last response did not contain a valid BROWSER_ACTION JSON line. Continue the same audit and provide exactly one safe browser action using the required machine-readable format. Do not ask the user to navigate for you.`;
+    await injectPrompt(current, repairPrompt);
+    return;
+  }
+
+  if (directive.browserAction === null) {
+    if (directive.status === "COMPLETE") {
+      await finishAgent(agent, directive);
+      return;
+    }
+    await patchAgent(agent.id, {
+      state: AGENT_STATES.NEEDS_USER,
+      error: "Agent returned BROWSER_ACTION: null before marking the audit complete."
+    });
+    return;
+  }
+
+  await patchAgent(agent.id, { state: AGENT_STATES.BROWSER_ACTING, error: "" });
+
+  let actionResult;
+  let auditTab;
+  try {
+    auditTab = await ensureAuditTab(task.audit_target.url, current.auditTabId);
+    await patchAgent(agent.id, { auditTabId: auditTab.id });
+
+    actionResult = await executeBrowserAction(
+      auditTab.id,
+      task.audit_target.url,
+      directive.browserAction
+    );
+
+    await waitForTabSettled(auditTab.id);
+  } catch (error) {
+    const message = String(error?.message || error);
+    actionResult = { ok: false, error: message, requestedAction: directive.browserAction };
+
+    if (/outside audit origin|restricted by policy|captcha|login|sign in|authentication/i.test(message)) {
+      await patchAgent(agent.id, {
+        state: AGENT_STATES.NEEDS_USER,
+        error: message
+      });
+      return;
+    }
+  }
+
+  try {
+    auditTab = auditTab || await ensureAuditTab(task.audit_target.url, current.auditTabId);
+    const observation = await observeAuditPage(auditTab.id);
+    const nextStep = currentStep + 1;
+    await attachObservation(
+      { ...current, auditTabId: auditTab.id },
+      task,
+      observation,
+      nextStep,
+      actionResult,
+      false
+    );
+  } catch (error) {
+    await patchAgent(agent.id, {
+      state: AGENT_STATES.NEEDS_USER,
+      error: `Could not observe the browser after the action: ${String(error?.message || error)}`
+    });
+  }
+}
+
 export async function handleResponse(tabId, assistantText, pageUrl) {
   const agent = await getAgentByTabId(tabId);
   if (!agent || agent.state === AGENT_STATES.PAUSED || TERMINAL_AGENT_STATES.has(agent.state)) return;
@@ -206,22 +399,35 @@ export async function handleResponse(tabId, assistantText, pageUrl) {
   const directive = parseAgentDirective(assistantText);
   await patchAgent(agent.id, {
     state: AGENT_STATES.EVALUATING,
-    lastResponse: String(assistantText || "").slice(-12000),
+    lastResponse: String(assistantText || "").slice(-16000),
     lastDirective: directive,
     conversationUrl: pageUrl || agent.conversationUrl
   });
   await patchTask(agent.taskId, { chatgpt_url: pageUrl || agent.conversationUrl });
 
+  const task = await getTask(agent.taskId);
+
+  if (isAutonomousAudit(task)) {
+    if (directive.status === "COMPLETE") {
+      await finishAgent(agent, directive);
+      return;
+    }
+
+    if (directive.status === "BLOCKED" && (directive.browserAction === null || directive.browserAction === undefined)) {
+      await patchAgent(agent.id, {
+        state: AGENT_STATES.NEEDS_USER,
+        error: directive.nextAction || "Audit requires human input."
+      });
+      if (directive.nextAction) await patchTask(agent.taskId, { next_action: directive.nextAction });
+      return;
+    }
+
+    await continueAutonomousAudit(agent, task, directive);
+    return;
+  }
+
   if (directive.status === "COMPLETE") {
-    await updateState((state) => {
-      const current = state.agents[agent.id];
-      if (current) state.agents[agent.id] = { ...current, state: AGENT_STATES.COMPLETE, updatedAt: nowIso() };
-      const run = state.runs[agent.runId];
-      if (run) state.runs[agent.runId] = { ...run, status: AGENT_STATES.COMPLETE, completedAt: nowIso() };
-      const task = state.tasks[agent.taskId];
-      if (task) state.tasks[agent.taskId] = { ...task, status: "Done", next_action: directive.nextAction || task.next_action, updatedAt: nowIso() };
-    });
-    await pumpQueue();
+    await finishAgent(agent, directive);
     return;
   }
 
@@ -244,14 +450,18 @@ export async function handleResponse(tabId, assistantText, pageUrl) {
       });
       return;
     }
-    const task = latestState.tasks[agent.taskId];
     const continuationCount = latestAgent.continuationCount + 1;
     await patchAgent(agent.id, { continuationCount });
-    await injectPrompt({ ...latestAgent, continuationCount }, buildContinuationPrompt(task, continuationCount));
+    await injectPrompt(
+      { ...latestAgent, continuationCount },
+      buildContinuationPrompt(task, continuationCount)
+    );
     return;
   }
 
-  await patchAgent(agent.id, { state: directive.status ? AGENT_STATES.RESPONSE_READY : AGENT_STATES.NEEDS_USER });
+  await patchAgent(agent.id, {
+    state: directive.status ? AGENT_STATES.RESPONSE_READY : AGENT_STATES.NEEDS_USER
+  });
   if (directive.nextAction) await patchTask(agent.taskId, { next_action: directive.nextAction });
 }
 
@@ -260,8 +470,16 @@ export async function continueTask(taskId) {
   if (!task) throw new Error("Task not found.");
   const agent = await getAgentByTaskId(taskId);
   if (!agent || !agent.tabId || !(await tabExists(agent.tabId))) {
-    return startTask(taskId, EXECUTION_MODES.ASSISTED);
+    return startTask(taskId, EXECUTION_MODES.AUTO);
   }
+
+  if (isAutonomousAudit(task)) {
+    const prompt = `Resume the autonomous read-only browser audit from the current state. Use the browser yourself and emit exactly one safe BROWSER_ACTION.`;
+    await patchAgent(agent.id, { state: AGENT_STATES.READY, error: "" });
+    await injectPrompt(agent, prompt);
+    return (await getState()).agents[agent.id];
+  }
+
   const continuationCount = (agent.continuationCount || 0) + 1;
   await patchAgent(agent.id, { continuationCount, state: AGENT_STATES.READY, error: "" });
   await injectPrompt({ ...agent, continuationCount }, buildContinuationPrompt(task, continuationCount));
@@ -325,12 +543,25 @@ export async function resumeAll() {
 }
 
 export async function handleTabRemoved(tabId) {
-  const agent = await getAgentByTabId(tabId);
-  if (!agent || TERMINAL_AGENT_STATES.has(agent.state) || agent.state === AGENT_STATES.CANCELLED) return;
-  await patchAgent(agent.id, {
-    state: AGENT_STATES.ERROR,
-    tabId: null,
-    error: "ChatGPT tab was closed. Start the task again to create a new worker tab."
-  });
-  await pumpQueue();
+  const state = await getState();
+
+  const chatAgent = Object.values(state.agents).find((agent) => agent.tabId === tabId);
+  if (chatAgent && !TERMINAL_AGENT_STATES.has(chatAgent.state) && chatAgent.state !== AGENT_STATES.CANCELLED) {
+    await patchAgent(chatAgent.id, {
+      state: AGENT_STATES.ERROR,
+      tabId: null,
+      error: "ChatGPT tab was closed. Start the task again to create a new worker tab."
+    });
+    await pumpQueue();
+    return;
+  }
+
+  const auditAgent = Object.values(state.agents).find((agent) => agent.auditTabId === tabId);
+  if (auditAgent && !TERMINAL_AGENT_STATES.has(auditAgent.state)) {
+    await patchAgent(auditAgent.id, {
+      auditTabId: null,
+      state: AGENT_STATES.NEEDS_USER,
+      error: "Audit browser tab was closed. Continue the task to reopen it."
+    });
+  }
 }
