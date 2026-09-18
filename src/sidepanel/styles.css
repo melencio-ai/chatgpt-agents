@@ -89,3 +89,36 @@ h1 { margin: 0; font-size: 15px; letter-spacing: -.01em; }
   height: 14px;
   fill: currentColor;
 }
+
+.runtime {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.runtime i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  display: inline-block;
+}
+.runtime.live {
+  color: light-dark(#0f766e, #5eead4);
+  font-weight: 700;
+}
+.runtime.live i {
+  animation: runtime-pulse 1.4s ease-in-out infinite;
+}
+.runtime.paused {
+  color: var(--muted);
+  font-weight: 700;
+}
+.runtime.finished {
+  color: var(--muted);
+}
+@keyframes runtime-pulse {
+  0%, 100% { opacity: .35; transform: scale(.9); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
