@@ -27,7 +27,7 @@ function mergeDefaults(value) {
     tasks: value.tasks && typeof value.tasks === "object" ? value.tasks : {},
     agents: value.agents && typeof value.agents === "object" ? value.agents : {},
     runs: value.runs && typeof value.runs === "object" ? value.runs : {},
-    settings: { ...DEFAULT_SETTINGS, ...(value.settings || {}) }
+    settings: {\n      ...DEFAULT_SETTINGS,\n      ...(value.settings || {}),\n      defaultMode: "auto",\n      maxConcurrentAgents: 1,\n      maxAutoContinuations: Math.max(40, Number(value.settings?.maxAutoContinuations) || 0)\n    }
   };
 }
 
