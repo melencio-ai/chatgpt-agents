@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Agents Tab Manager",
-  "version": "0.5.0",
-  "description": "Run autonomous ChatGPT browser agents, read-only app audits, and tab-recorded tutorial guides.",
+  "version": "0.5.1",
+  "description": "Run screenshot-aware autonomous browser agents, read-only audits, and tab-recorded tutorial guides.",
   "permissions": [
     "storage",
     "tabs",
