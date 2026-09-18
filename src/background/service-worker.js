@@ -12,6 +12,7 @@ import {
   continueTask,
   pauseTask,
   cancelTask,
+  deleteTask,
   openTaskTab,
   pauseAll,
   resumeAll,
@@ -63,6 +64,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case MESSAGE_TYPES.CANCEL_TASK:
           sendResponse({ ok: true, agent: await cancelTask(message.taskId) });
+          break;
+        case MESSAGE_TYPES.DELETE_TASK:
+          sendResponse({ ok: true, deleted: await deleteTask(message.taskId) });
           break;
         case MESSAGE_TYPES.OPEN_TASK_TAB:
           sendResponse({ ok: true, agent: await openTaskTab(message.taskId) });
