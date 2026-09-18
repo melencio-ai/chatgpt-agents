@@ -4,6 +4,7 @@
     CHATGPT_RESPONSE: "CHATGPT_RESPONSE",
     CHATGPT_GENERATING: "CHATGPT_GENERATING",
     INJECT_PROMPT: "INJECT_PROMPT",
+    ATTACH_IMAGE: "ATTACH_IMAGE",
     STOP_GENERATION: "STOP_GENERATION",
     GET_CHAT_STATE: "GET_CHAT_STATE"
   };
@@ -33,6 +34,18 @@
     assistantMessages: [
       "[data-message-author-role='assistant']",
       "article [data-message-author-role='assistant']"
+    ],
+    fileInputs: [
+      "input[type='file'][accept*='image']",
+      "input[type='file']"
+    ],
+    attachmentButtons: [
+      "button[data-testid='composer-plus-btn']",
+      "button[aria-label*='Attach']",
+      "button[aria-label*='Upload']",
+      "button[aria-label*='Add files']",
+      "button[aria-label*='photos']",
+      "button[aria-label*='files']"
     ]
   };
 
@@ -56,6 +69,10 @@
 
   function getStopButton() {
     return firstMatch(selectors.stopButton);
+  }
+
+  function getFileInput() {
+    return firstMatch(selectors.fileInputs);
   }
 
   function isGenerating() {
@@ -122,6 +139,62 @@
     return true;
   }
 
+  function base64ToFile(base64, filename, mimeType) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new File([bytes], filename, { type: mimeType });
+  }
+
+  function setFiles(input, file) {
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function dispatchFileDrop(file) {
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    const target = getComposer()?.closest("form") || getComposer() || document.body;
+
+    for (const type of ["dragenter", "dragover", "drop"]) {
+      const event = new DragEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer
+      });
+      target.dispatchEvent(event);
+    }
+  }
+
+  async function attachImage({ base64, filename, mimeType }) {
+    if (!base64) throw new Error("Screenshot payload is empty.");
+    const file = base64ToFile(base64, filename || "audit-evidence.jpg", mimeType || "image/jpeg");
+
+    let input = getFileInput();
+    if (!input) {
+      const attachmentButton = firstMatch(selectors.attachmentButtons);
+      if (attachmentButton) {
+        attachmentButton.click();
+        input = await waitFor(getFileInput, 2500, 100);
+      }
+    }
+
+    if (input) {
+      setFiles(input, file);
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      return "file-input";
+    }
+
+    dispatchFileDrop(file);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    return "drag-drop";
+  }
+
   function stopGeneration() {
     const stopButton = getStopButton();
     if (stopButton) stopButton.click();
@@ -178,6 +251,11 @@
             await injectPrompt(message.prompt);
             sendResponse({ ok: true });
             break;
+          case MESSAGE_TYPES.ATTACH_IMAGE: {
+            const method = await attachImage(message);
+            sendResponse({ ok: true, method });
+            break;
+          }
           case MESSAGE_TYPES.STOP_GENERATION:
             sendResponse({ ok: true, stopped: stopGeneration() });
             break;
