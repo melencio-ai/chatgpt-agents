@@ -498,7 +498,7 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
         "Ava,Sample,ava.sample@example.com,+15555550101",
         "Noah,Sample,noah.sample@example.com,+15555550102",
         "Mia,Sample,mia.sample@example.com,+15555550103"
-      ].join("\\n");
+      ].join("\n");
       const result = await evaluate(debuggee, `(() => {
         const input = document.querySelector(${JSON.stringify(selector)});
         if (!input) return { found: false };
