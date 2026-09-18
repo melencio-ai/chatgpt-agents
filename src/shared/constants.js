@@ -27,7 +27,8 @@ export const EXECUTION_MODES = Object.freeze({
 export const DEFAULT_SETTINGS = Object.freeze({
   defaultMode: EXECUTION_MODES.AUTO,
   maxConcurrentAgents: 1,
-  maxAutoContinuations: 40
+  maxAutoContinuations: 40,
+  visualMouse: true
 });
 
 export const TERMINAL_AGENT_STATES = new Set([
