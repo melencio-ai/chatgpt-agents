@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "project": {
+    "title": "Dynk Full Autonomous Audit",
+    "owner": "Melencio",
+    "audit_mode": "read_only",
+    "audit_target": {
+      "url": "https://app.dynk.ph/"
+    },
+    "instructions": [
+      "Run the audit end-to-end using the browser operator. Do not ask the user to manually navigate or capture screenshots unless a true human-only blocker occurs.",
+      "This is a read-only audit. Do not save, submit, delete, create, approve, reject, activate, deactivate, book, reserve, pay, refund, send, invite, reset, favorite, or otherwise change application state.",
+      "Use screenshots and structured page observations as evidence.",
+      "Only report findings supported by observed evidence.",
+      "Continue autonomously through safe navigation, menus, drawers, tabs, lists, details pages, settings pages, scrolling and back navigation.",
+      "If an action is blocked by the read-only guard, find a different safe way to inspect the same area.",
+      "Treat login, CAPTCHA, MFA, external-origin authentication or permission denial as human-only blockers."
+    ],
+    "deliverables": [
+      "Executive audit summary.",
+      "Confirmed findings grouped by Critical, High, Medium, Low and Observation.",
+      "For every finding: affected area, evidence, impact and recommended remediation.",
+      "Strengths and workflows that appear correct.",
+      "Cross-role consistency findings.",
+      "Mobile/PWA and accessibility findings visible from the audit.",
+      "Security/privacy concerns visible from the UI or browser-observed behavior.",
+      "Unverified areas and why they could not be verified."
+    ]
+  },
+  "tasks": [
+    {
+      "id": "dynk-full-autonomous-audit",
+      "title": "Dynk Full Product Audit",
+      "priority": "P3 - Normal",
+      "status": "Now",
+      "next_action": "Audit Dynk end-to-end in read-only mode using the autonomous browser operator, covering public/customer journeys, venue and booking UX, franchise/location operations, payments surfaces, platform administration, roles, consistency, accessibility and reliability.",
+      "audit_focus": [
+        "Public directory and venue discovery.",
+        "Active and inactive venue presentation.",
+        "Venue detail pages, schedules, availability and day pagination.",
+        "Favorites presentation and limits without toggling favorites.",
+        "Open Play journey without submitting a booking.",
+        "Court Reservation journey without submitting a booking.",
+        "Walk-in workflow surfaces without creating records.",
+        "Manual GCash payment/proof-of-payment surfaces without approving or changing payment state.",
+        "Xendit payment entry points and configuration presentation without editing credentials.",
+        "Franchise settings and global rules.",
+        "Location settings: address, branding override, GCash QR, court count, schedules, slot duration, booking limits, availability and status.",
+        "Bookings, Open Play and Payments operational tables and drawers.",
+        "Super Admin platform statistics and administration surfaces.",
+        "Accounts and users administration without creating, editing or deleting users.",
+        "Password-reset and email-related administration surfaces without sending messages.",
+        "Super Admin, Franchise owner and Location user role/navigation differences visible in the current account context.",
+        "Tenant, franchise and location context clarity.",
+        "Search, filtering, pagination, row actions and status visibility.",
+        "Loading, skeleton, empty, success, validation and error states that can be safely observed.",
+        "Destructive-action safeguards and confirmation patterns without confirming destructive actions.",
+        "Desktop layout, responsive/mobile behavior where safely inspectable, PWA cues, accessibility and touch-target quality.",
+        "Cross-system copy, naming, hierarchy, navigation and component consistency.",
+        "Visible privacy/security issues such as exposed secrets, sensitive values, permission leakage or overly revealing errors."
+      ],
+      "subtasks": [
+        {
+          "title": "Map the current navigation and major product areas.",
+          "completed": false
+        },
+        {
+          "title": "Audit public/customer discovery and venue pages.",
+          "completed": false
+        },
+        {
+          "title": "Audit booking-related journeys without submitting transactions.",
+          "completed": false
+        },
+        {
+          "title": "Audit customer-facing payment surfaces without paying or changing payment state.",
+          "completed": false
+        },
+        {
+          "title": "Audit franchise-level settings and global-rule presentation.",
+          "completed": false
+        },
+        {
+          "title": "Audit location-level settings, schedules, limits, availability and branding.",
+          "completed": false
+        },
+        {
+          "title": "Audit operational Bookings, Open Play and Payments surfaces.",
+          "completed": false
+        },
+        {
+          "title": "Audit platform administration, accounts/users and visible role boundaries.",
+          "completed": false
+        },
+        {
+          "title": "Audit tenant/location context safety, action clarity and destructive-action safeguards.",
+          "completed": false
+        },
+        {
+          "title": "Audit consistency, responsive behavior, accessibility and visible reliability issues.",
+          "completed": false
+        },
+        {
+          "title": "Review visible security/privacy concerns and permission leakage.",
+          "completed": false
+        },
+        {
+          "title": "Produce the final evidence-grounded Dynk audit report.",
+          "completed": false
+        }
+      ]
+    }
+  ]
+}
