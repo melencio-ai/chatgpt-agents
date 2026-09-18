@@ -37,6 +37,25 @@ function normalizeSubtask(raw, parentId, index) {
   };
 }
 
+function normalizeStringList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (value === undefined || value === null || value === "") return [];
+  return [String(value).trim()].filter(Boolean);
+}
+
+function normalizeAuditTarget(raw, projectDefaults) {
+  const target = raw.audit_target ?? projectDefaults.audit_target;
+  if (!target) return null;
+  if (typeof target === "string") return { url: target };
+  if (typeof target !== "object" || Array.isArray(target)) {
+    throw new Error("audit_target must be a URL string or object.");
+  }
+  return {
+    ...target,
+    url: String(target.url || "").trim()
+  };
+}
+
 function normalizeTask(raw, index = 0, projectDefaults = {}) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error(`Task ${index + 1} must be an object.`);
@@ -75,6 +94,11 @@ function normalizeTask(raw, index = 0, projectDefaults = {}) {
     chatgpt_url: raw.chatgpt_url || "",
     confidence: raw.confidence ?? null,
     rationale: raw.rationale || "",
+    audit_mode: raw.audit_mode || projectDefaults.audit_mode || "",
+    audit_target: normalizeAuditTarget(raw, projectDefaults),
+    audit_focus: normalizeStringList(raw.audit_focus ?? projectDefaults.audit_focus),
+    deliverables: normalizeStringList(raw.deliverables ?? projectDefaults.deliverables),
+    instructions: normalizeStringList(raw.instructions ?? projectDefaults.instructions),
     subtasks,
     source
   };
