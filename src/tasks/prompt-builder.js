@@ -42,6 +42,7 @@ BROWSER_ACTION: {"type":"navigate","url":"/locations/"}
 BROWSER_ACTION: {"type":"scroll","deltaY":800}
 BROWSER_ACTION: {"type":"back"}
 BROWSER_ACTION: {"type":"wait","ms":1000}
+${tutorial ? `BROWSER_ACTION: {"type":"upload_sample_csv","selector":"input[type='file']"}\nThe upload_sample_csv action is tutorial-only and uses generated dummy contacts, never real customer data.` : ""}
 
 Do not request typing, form submission, payment, saving, deletion, creation, activation/deactivation, approval/rejection, booking, favoriting, inviting, email sending, password reset, refunding, or any other state-changing action. The extension also blocks obvious state-changing controls.
 
