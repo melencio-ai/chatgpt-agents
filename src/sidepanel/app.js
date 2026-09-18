@@ -21,11 +21,13 @@ function esc(value) {
     .replaceAll("'", "&#039;");
 }
 
-function flash(message) {
+function flash(message, persistent = false) {
   notice.hidden = false;
   notice.textContent = message;
   clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => { notice.hidden = true; }, 4500);
+  if (!persistent) {
+    noticeTimer = setTimeout(() => { notice.hidden = true; }, 4500);
+  }
 }
 
 async function send(message) {
@@ -212,4 +214,4 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   render();
 });
 
-refresh().catch((error) => flash(error.message));
+refresh().catch((error) => flash(`Extension runtime failed: ${error.message}`, true));
