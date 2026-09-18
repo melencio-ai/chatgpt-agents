@@ -34,6 +34,13 @@ function renderAuditContext(task) {
 BROWSER AUTOMATION:
 You have a browser operator controlling the ${tutorial ? "tutorial target" : "audit target"} for you. The extension will provide a screenshot plus a structured page observation after each browser action.
 
+EVIDENCE-FIRST NAVIGATION:
+Treat the fresh screenshot as the primary source of truth for where you are now. Do not assume a click or navigation succeeded just because you requested it.
+Before any non-trivial browser action, identify the current screen from visible evidence and report it in EVIDENCE_STATE.
+Use at least two concrete cues when possible, such as a visible heading, selected navigation item, dialog title, unique button label, breadcrumb, or other text actually visible in the screenshot.
+URL/title/DOM text may support your conclusion, but they do not replace visual evidence from the screenshot.
+If you cannot identify the screen confidently, request inspect/capture/wait instead of clicking or navigating blindly.
+
 You may request exactly ONE browser action per response using one JSON object on one line:
 BROWSER_ACTION: {"type":"inspect"}
 BROWSER_ACTION: {"type":"click_text","text":"Locations"}
@@ -82,12 +89,14 @@ Base findings only on evidence you can actually inspect and on clearly stated ta
 
 function renderFooter(task) {
   if (isAutonomousAudit(task)) {
-    return `At the very end of your response, include exactly these three machine-readable lines:
+    return `At the very end of your response, include exactly these four machine-readable lines:
+EVIDENCE_STATE: {"screen":"<current screen name or unknown>","confidence":<0.0-1.0>,"evidence":["<visible cue 1>","<visible cue 2>"]}
 BROWSER_ACTION: <one JSON object, or null when complete/blocked>
 AGENT_STATUS: CONTINUE | COMPLETE | BLOCKED
 NEXT_ACTION: <short description of what you are doing next or the blocker>
 
-Choose only one AGENT_STATUS value.`;
+Choose only one AGENT_STATUS value.
+For normal browser actions, confidence should be at least 0.65 and evidence should contain visible cues from the current screenshot. If confidence is lower, use inspect/capture/wait to gather more evidence instead of acting blindly.`;
   }
 
   return `At the very end of your response, include exactly these two machine-readable lines:
@@ -146,7 +155,7 @@ export function buildBrowserObservationPrompt(task, observation, stepNumber = 1,
   const snapshot = observation?.snapshot || {};
   return `Browser observation ${stepNumber} for ${task.title}.
 
-A screenshot of the current browser viewport is attached.
+A fresh screenshot of the current browser viewport is attached. Re-ground yourself from this screenshot before choosing the next action. Do not rely on your previous assumption about which page should have loaded.
 
 Current page:
 URL: ${snapshot.url || "unknown"}
@@ -162,9 +171,28 @@ ${renderInteractiveElements(snapshot.interactiveElements)}
 Previous browser action result:
 ${actionResult ? JSON.stringify(actionResult) : "Initial observation; no browser action has run yet."}
 
-${isTutorialTask(task) ? "Continue the tutorial using the browser yourself. Choose the next small, visible teaching step and request exactly one safe browser action. Do not ask the user to move around the site for you." : "Continue the audit using the browser yourself. Inspect this evidence, record any confirmed findings internally in your running audit, and choose exactly one safe next browser action. Do not ask the user to move around the site for you."}
+${isTutorialTask(task) ? "Continue the tutorial using the browser yourself. First identify the current screen from the fresh screenshot and visible cues, then choose the next small teaching step. Request exactly one safe browser action. Do not ask the user to move around the site for you." : "Continue the audit using the browser yourself. First identify the current screen from the fresh screenshot and visible cues, then choose exactly one safe next browser action. Do not ask the user to move around the site for you."}
 
 ${renderFooter(task)}`;
+}
+
+function parseEvidenceState(value) {
+  const match = value.match(/(?:^|\n)EVIDENCE_STATE:\s*(.+?)\s*(?:\n|$)/i);
+  if (!match) return undefined;
+  try {
+    const parsed = JSON.parse(match[1].trim());
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const confidence = Number(parsed.confidence);
+    return {
+      screen: String(parsed.screen || "unknown").trim() || "unknown",
+      confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+      evidence: Array.isArray(parsed.evidence)
+        ? parsed.evidence.map((item) => String(item).trim()).filter(Boolean).slice(0, 8)
+        : []
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function parseBrowserAction(value) {
@@ -187,6 +215,7 @@ export function parseAgentDirective(text) {
   return {
     status: statusMatch ? statusMatch[1].toUpperCase() : null,
     nextAction: nextMatch ? nextMatch[1].trim() : "",
+    evidenceState: parseEvidenceState(value),
     browserAction: parseBrowserAction(value)
   };
 }
