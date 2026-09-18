@@ -58,3 +58,24 @@ test("inherits audit defaults from the project wrapper", () => {
 test("rejects a task with no title", () => {
   assert.throws(() => parseTaskPayload({ subtasks: [] }), /missing a title/i);
 });
+
+
+test("parses tutorial task configuration", () => {
+  const [task] = parseTaskPayload({
+    title: "Record tutorial",
+    task_mode: "tutorial",
+    tutorial: {
+      enabled: true,
+      title: "How to import contacts",
+      recordTabAudio: false,
+      pace: "slow"
+    },
+    audit_mode: "tutorial read-only",
+    audit_target: { url: "https://app.gohighlevel.com/" }
+  });
+  assert.equal(task.task_mode, "tutorial");
+  assert.equal(task.tutorial.enabled, true);
+  assert.equal(task.tutorial.title, "How to import contacts");
+  assert.equal(task.tutorial.recordTabAudio, false);
+  assert.equal(task.tutorial.pace, "slow");
+});
