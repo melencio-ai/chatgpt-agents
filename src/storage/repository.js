@@ -27,7 +27,16 @@ function mergeDefaults(value) {
     tasks: value.tasks && typeof value.tasks === "object" ? value.tasks : {},
     agents: value.agents && typeof value.agents === "object" ? value.agents : {},
     runs: value.runs && typeof value.runs === "object" ? value.runs : {},
-    settings: {\n      ...DEFAULT_SETTINGS,\n      ...(value.settings || {}),\n      defaultMode: "auto",\n      maxConcurrentAgents: 1,\n      maxAutoContinuations: Math.max(40, Number(value.settings?.maxAutoContinuations) || 0)\n    }
+    settings: {
+      ...DEFAULT_SETTINGS,
+      ...(value.settings || {}),
+      defaultMode: "auto",
+      maxConcurrentAgents: 1,
+      maxAutoContinuations: Math.max(
+        40,
+        Number(value.settings?.maxAutoContinuations) || 0
+      )
+    }
   };
 }
 
@@ -70,7 +79,16 @@ export async function upsertTasks(tasks) {
 
 export async function setSettings(patch) {
   return updateState((state) => {
-    state.settings = { ...state.settings, ...patch };
+    state.settings = {
+      ...state.settings,
+      ...patch,
+      defaultMode: "auto",
+      maxConcurrentAgents: 1,
+      maxAutoContinuations: Math.max(
+        5,
+        Number(patch?.maxAutoContinuations ?? state.settings?.maxAutoContinuations) || 40
+      )
+    };
   });
 }
 
