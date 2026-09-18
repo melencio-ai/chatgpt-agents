@@ -9,7 +9,7 @@
   "tutorial": {
     "enabled": true,
     "title": "How to Import Contacts in HighLevel",
-    "recordTabAudio": true,
+    "recordTabAudio": false,
     "pace": "guided"
   },
   "audit_mode": "tutorial read-only",
