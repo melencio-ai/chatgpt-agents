@@ -1,0 +1,98 @@
+import { MESSAGE_TYPES } from "../shared/constants.js";
+import {
+  getState,
+  initializeState,
+  setSettings,
+  upsertTasks
+} from "../storage/repository.js";
+import { parseTaskPayload } from "../tasks/parser.js";
+import {
+  startTask,
+  continueTask,
+  pauseTask,
+  cancelTask,
+  openTaskTab,
+  pauseAll,
+  resumeAll,
+  handlePageReady,
+  handleResponse,
+  markGenerating,
+  handleTabRemoved,
+  pumpQueue
+} from "./task-runner.js";
+
+chrome.runtime.onInstalled.addListener(async () => {
+  await initializeState();
+  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+});
+
+chrome.runtime.onStartup.addListener(async () => {
+  await initializeState();
+  await pumpQueue();
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  handleTabRemoved(tabId).catch(console.error);
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  (async () => {
+    try {
+      switch (message?.type) {
+        case MESSAGE_TYPES.GET_STATE:
+          sendResponse({ ok: true, state: await getState() });
+          break;
+        case MESSAGE_TYPES.IMPORT_TASK_PAYLOAD: {
+          const tasks = parseTaskPayload(message.payload);
+          const state = await upsertTasks(tasks);
+          sendResponse({ ok: true, imported: tasks.length, state });
+          break;
+        }
+        case MESSAGE_TYPES.START_TASK:
+          sendResponse({ ok: true, agent: await startTask(message.taskId, message.mode) });
+          break;
+        case MESSAGE_TYPES.CONTINUE_TASK:
+          sendResponse({ ok: true, agent: await continueTask(message.taskId) });
+          break;
+        case MESSAGE_TYPES.PAUSE_TASK:
+          sendResponse({ ok: true, agent: await pauseTask(message.taskId) });
+          break;
+        case MESSAGE_TYPES.CANCEL_TASK:
+          sendResponse({ ok: true, agent: await cancelTask(message.taskId) });
+          break;
+        case MESSAGE_TYPES.OPEN_TASK_TAB:
+          sendResponse({ ok: true, agent: await openTaskTab(message.taskId) });
+          break;
+        case MESSAGE_TYPES.UPDATE_SETTINGS:
+          sendResponse({ ok: true, state: await setSettings(message.patch || {}) });
+          break;
+        case MESSAGE_TYPES.PAUSE_ALL:
+          await pauseAll();
+          sendResponse({ ok: true });
+          break;
+        case MESSAGE_TYPES.RESUME_ALL:
+          await resumeAll();
+          sendResponse({ ok: true });
+          break;
+        case MESSAGE_TYPES.CHATGPT_PAGE_READY:
+          if (sender.tab?.id) await handlePageReady(sender.tab.id, message.url || sender.tab.url);
+          sendResponse({ ok: true });
+          break;
+        case MESSAGE_TYPES.CHATGPT_GENERATING:
+          if (sender.tab?.id) await markGenerating(sender.tab.id);
+          sendResponse({ ok: true });
+          break;
+        case MESSAGE_TYPES.CHATGPT_RESPONSE:
+          if (sender.tab?.id) await handleResponse(sender.tab.id, message.text || "", message.url || sender.tab.url);
+          sendResponse({ ok: true });
+          break;
+        default:
+          sendResponse({ ok: false, error: "Unknown message type." });
+      }
+    } catch (error) {
+      console.error(error);
+      sendResponse({ ok: false, error: String(error?.message || error) });
+    }
+  })();
+  return true;
+});
