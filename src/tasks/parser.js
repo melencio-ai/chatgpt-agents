@@ -1,0 +1,120 @@
+function slugify(value) {
+  return String(value || "task")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 56) || "task";
+}
+
+function stableTaskId(raw, index = 0) {
+  if (raw?.id) return String(raw.id);
+  if (raw?.source_transcript_id !== undefined && raw?.source_transcript_id !== null) {
+    return `task-transcript-${raw.source_transcript_id}`;
+  }
+  const suffix = index > 0 ? `-${index + 1}` : "";
+  return `task-${slugify(raw?.title)}${suffix}`;
+}
+
+function normalizeSubtask(raw, parentId, index) {
+  if (typeof raw === "string") {
+    return {
+      id: `${parentId}-subtask-${index + 1}`,
+      title: raw.trim(),
+      completed: false
+    };
+  }
+  if (!raw || typeof raw !== "object") {
+    throw new Error(`Invalid subtask at index ${index}.`);
+  }
+  const title = String(raw.title || "").trim();
+  if (!title) throw new Error(`Subtask ${index + 1} is missing a title.`);
+  return {
+    ...raw,
+    id: String(raw.id || `${parentId}-subtask-${index + 1}`),
+    title,
+    completed: Boolean(raw.completed)
+  };
+}
+
+function normalizeTask(raw, index = 0, projectDefaults = {}) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`Task ${index + 1} must be an object.`);
+  }
+  const title = String(raw.title || "").trim();
+  if (!title) throw new Error(`Task ${index + 1} is missing a title.`);
+
+  const id = stableTaskId(raw, index);
+  const subtasks = Array.isArray(raw.subtasks)
+    ? raw.subtasks.map((item, subIndex) => normalizeSubtask(item, id, subIndex))
+    : [];
+
+  const source = raw.source && typeof raw.source === "object"
+    ? { ...raw.source }
+    : {
+        transcript_id: raw.source_transcript_id ?? null,
+        started_at: raw.source_started_at ?? null,
+        ended_at: raw.source_ended_at ?? null,
+        offset_seconds: raw.source_offset_seconds ?? null,
+        end_offset_seconds: raw.source_end_offset_seconds ?? null,
+        speaker: raw.source_speaker ?? null,
+        excerpt: raw.source_excerpt ?? null
+      };
+
+  return {
+    id,
+    title,
+    project: raw.project || projectDefaults.title || "",
+    owner: raw.owner || projectDefaults.owner || "",
+    due_date: raw.due_date ?? null,
+    priority: raw.priority || "P3 - Normal",
+    status: raw.status || "Now",
+    archived_at: raw.archived_at ?? null,
+    next_action: raw.next_action || "",
+    waiting_on: raw.waiting_on || "",
+    chatgpt_url: raw.chatgpt_url || "",
+    confidence: raw.confidence ?? null,
+    rationale: raw.rationale || "",
+    subtasks,
+    source
+  };
+}
+
+export function parseTaskPayload(payload) {
+  const data = typeof payload === "string" ? JSON.parse(payload) : payload;
+
+  let rawTasks;
+  let projectDefaults = {};
+
+  if (Array.isArray(data)) {
+    rawTasks = data;
+  } else if (data && typeof data === "object" && Array.isArray(data.tasks)) {
+    rawTasks = data.tasks;
+    projectDefaults = data.project && typeof data.project === "object" ? data.project : {};
+  } else if (data && typeof data === "object") {
+    rawTasks = [data];
+  } else {
+    throw new Error("JSON must contain a task object, an array of tasks, or an object with a tasks array.");
+  }
+
+  if (!rawTasks.length) throw new Error("The JSON file contains no tasks.");
+
+  const seen = new Set();
+  return rawTasks.map((raw, index) => {
+    const task = normalizeTask(raw, index, projectDefaults);
+    let id = task.id;
+    let counter = 2;
+    while (seen.has(id)) {
+      id = `${task.id}-${counter++}`;
+    }
+    seen.add(id);
+    if (id !== task.id) {
+      task.id = id;
+      task.subtasks = task.subtasks.map((subtask, subIndex) => ({
+        ...subtask,
+        id: `${id}-subtask-${subIndex + 1}`
+      }));
+    }
+    return task;
+  });
+}
