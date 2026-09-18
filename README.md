@@ -1,159 +1,134 @@
 # ChatGPT Agents Tab Manager
 
-A Manifest V3 Chrome/Edge extension for loading structured task JSON, assigning tasks to disposable ChatGPT browser tabs, monitoring multiple task conversations, and attaching read-only browser screenshots as audit evidence.
+A Manifest V3 Chrome/Edge extension that runs one ChatGPT browser agent at a time. The agent can operate a target web app through Chrome DevTools Protocol, inspect the current page, receive screenshots, choose the next safe browser action, and continue until its task is complete.
 
-## V0.2 features
+## V0.3 — single autonomous browser agent
 
-- Persistent side-panel control center.
-- Imports either a single task object, an array of tasks, or `{ "project": ..., "tasks": [...] }`.
-- Persists tasks, agents, runs, settings, ChatGPT URLs, errors, and last responses in `chrome.storage.local`.
-- Manual, assisted, and auto execution modes.
-- Configurable parallel-agent limit and auto-continuation limit.
-- Creates/binds ChatGPT worker tabs independently from task records.
-- Injects initial and continuation prompts through a dedicated ChatGPT content adapter.
-- Watches generation and reports response completion back to the service worker.
-- Uses `AGENT_STATUS` / `NEXT_ACTION` response markers for deterministic continuation decisions.
-- Pause, resume, cancel, continue, open-tab, pause-all, and resume-all controls.
-- Queueing when the configured concurrency limit is reached.
-- Basic recovery when a worker tab is closed.
-- Read-only audit task fields: `audit_mode`, `audit_target`, `audit_focus`, `deliverables`, and `instructions`.
-- **Capture evidence** action for audit tasks.
-- Full-page screenshot capture through Chrome DevTools Protocol via `chrome.debugger`.
-- Screenshot attachment into the matching ChatGPT task conversation.
-- Evidence count and last captured URL shown in the side panel.
+The extension now deliberately runs **one active agent at a time**.
 
-## Install locally
-
-1. Clone or download this repository.
-2. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
-3. Enable **Developer mode**.
-4. Choose **Load unpacked** and select this repository folder.
-5. Click the extension toolbar action to open the side panel.
-6. Keep yourself signed in to `https://chatgpt.com/`.
-7. Import `samples/task.json` or your own task JSON.
-
-No build step or external dependency is required.
-
-## Updating an unpacked install
-
-If you originally downloaded the repository as a ZIP:
-
-1. Download the latest ZIP.
-2. Replace the files in your existing unpacked extension folder.
-3. Open `edge://extensions` or `chrome://extensions`.
-4. Find **ChatGPT Agents Tab Manager**.
-5. Click **Reload**.
-
-Version 0.2 adds the powerful `debugger` permission. The browser may show a new permission warning when the extension is reloaded or re-enabled.
-
-## Audit screenshot workflow
-
-Audit task JSON can include:
-
-```json
-{
-  "audit_mode": "read_only",
-  "audit_target": {
-    "url": "https://app.example.com/"
-  },
-  "audit_focus": ["Booking flow", "Mobile UX"],
-  "instructions": ["Do not save changes"]
-}
-```
-
-Workflow:
-
-1. Start the audit task so its ChatGPT worker tab exists.
-2. Open or navigate the audit target in another browser tab.
-3. Put that target tab on the exact page/state you want reviewed.
-4. In the extension side panel, click **Capture evidence** for the matching task.
-5. The extension captures the target tab with the debugger protocol and attaches the image to that task's ChatGPT composer.
-6. Click **Continue** when the agent is ready for that evidence.
-7. Repeat for additional pages/states requested by the agent.
-
-The extension prefers the currently active tab whose origin matches `audit_target.url`. Screenshots are passed directly to the matching ChatGPT tab and are not stored as image blobs in extension storage.
-
-If browser DevTools or another debugger client is already attached to the target tab, close it before using **Capture evidence**.
-
-## Dynk three-agent audit
-
-Import:
-
-`samples/dynk-full-audit-3-agents.json`
-
-Recommended settings:
-
-- Mode: **Assisted**
-- Parallel: **3**
-- Keep the Dynk audit read-only.
-- Start all three tasks.
-- Supply each agent with the screens it asks for using **Capture evidence**.
-- Do not submit forms or perform destructive actions during the audit.
-
-## Execution modes
-
-- **Manual**: creates/binds the ChatGPT tab but does not submit a prompt.
-- **Assisted**: submits the first prompt automatically; further continuation requires the **Continue** button.
-- **Auto**: submits the first prompt and follows `AGENT_STATUS: CONTINUE` automatically up to the configured loop limit.
-
-Generated prompts ask ChatGPT to finish responses with:
+For read-only audit tasks, the loop is:
 
 ```text
-AGENT_STATUS: CONTINUE | COMPLETE | BLOCKED
-NEXT_ACTION: <short next action or blocker>
+Task JSON
+   ↓
+ChatGPT agent
+   ↓
+BROWSER_ACTION JSON
+   ↓
+Extension browser operator
+   ↓
+Dynk/app tab
+   ├── navigate
+   ├── click safe links/buttons
+   ├── scroll
+   ├── inspect page text + interactive elements
+   ├── back
+   ├── wait
+   └── capture current viewport
+   ↓
+Screenshot + structured browser observation
+   ↓
+same ChatGPT conversation
+   ↓
+next browser action
 ```
 
-For audit tasks, agents are additionally instructed to remain read-only, avoid unsupported claims, and use `BLOCKED` when another page or state is required.
+The user only needs to intervene for a true blocker such as login/MFA, CAPTCHA, an external authentication origin, permission denial, or browser policy restriction.
 
-## Architecture
+## Read-only guard
+
+Audit automation is intentionally non-destructive. The operator blocks obvious state-changing actions such as Save, Submit, Delete, Approve, Pay, Book Now, Activate, Refund, Send, Invite and similar controls.
+
+Safe audit actions currently include:
+
+- `inspect`
+- `click_text`
+- `click_selector`
+- `navigate` within the configured audit origin
+- `scroll`
+- `back`
+- `wait`
+- `capture`
+
+The browser operator uses `chrome.debugger` / Chrome DevTools Protocol for page inspection, navigation and screenshots.
+
+## Dynk autonomous audit
+
+Use:
+
+`samples/dynk-full-audit-autonomous.json`
+
+Then:
+
+1. Update/reload the extension.
+2. Make sure you are already logged in to Dynk in the same Edge/Chrome profile.
+3. Import the JSON.
+4. Click **Start** once.
+5. Leave the browser open. The same agent will drive the Dynk tab and keep working through the audit.
+6. Intervene only if the side panel shows **Needs User**.
+
+The old three-agent audit sample remains in the repository for reference, but the recommended workflow is now the single autonomous task.
+
+## Local install
+
+1. Open `edge://extensions` or `chrome://extensions`.
+2. Enable Developer mode.
+3. Load unpacked from your local repository folder.
+4. Click the extension action to open the side panel.
+
+## Updating
+
+If your live extension folder is:
+
+`D:\chatgpt-agents-main\chatgpt-agents-main`
+
+and it is a Git clone, update with:
+
+```powershell
+git -C "D:\chatgpt-agents-main\chatgpt-agents-main" pull --ff-only origin main
+```
+
+Then reload the extension from `edge://extensions`.
+
+## Browser action protocol
+
+Autonomous audit responses finish with:
 
 ```text
-Side Panel
-   |
-   v
-MV3 Service Worker ---- chrome.storage.local
-   |
-   +---- Task Runner / Queue / State Machine
-   |
-   +---- Evidence Capture ---- chrome.debugger / CDP
-   |                              |
-   |                              v
-   |                         Audit target tab
-   |
-   +---- chrome.tabs
-             |
-             v
-      ChatGPT worker tabs
-             |
-             v
-      Content adapter
-      - composer detection
-      - prompt injection
-      - screenshot attachment
-      - generation detection
-      - latest response extraction
+BROWSER_ACTION: {"type":"click_text","text":"Locations"}
+AGENT_STATUS: CONTINUE
+NEXT_ACTION: Open Locations and inspect it
 ```
 
-Tasks are durable records. Browser tabs are disposable workers. Closing a tab therefore does not delete or corrupt its task.
+When finished:
 
-## State model
+```text
+BROWSER_ACTION: null
+AGENT_STATUS: COMPLETE
+NEXT_ACTION: Audit complete
+```
 
-Agent states include:
+## Key files
 
-`QUEUED`, `CREATING_TAB`, `WAITING_FOR_CHATGPT`, `READY`, `INJECTING_PROMPT`, `SUBMITTED`, `GENERATING`, `RESPONSE_READY`, `EVALUATING`, `PAUSED`, `NEEDS_USER`, `COMPLETE`, `ERROR`, `CANCELLED`.
+- `src/background/task-runner.js` — one-agent queue and autonomous loop
+- `src/background/browser-operator.js` — read-only CDP browser controller
+- `src/tasks/prompt-builder.js` — agent/browser command contract
+- `src/content/chatgpt-content.js` — ChatGPT prompt/image adapter
+- `src/storage/repository.js` — durable state and v0.3 settings migration
+- `samples/dynk-full-audit-autonomous.json` — recommended Dynk task
 
 ## Development
-
-The extension is intentionally dependency-free. Pure task parsing and prompt logic have Node tests:
 
 ```bash
 npm test
 ```
 
-## Important limitations
+The extension has no build step.
 
-The ChatGPT content adapter necessarily depends on ChatGPT's web UI. Selectors are isolated in `src/content/chatgpt-content.js` so UI changes can be repaired in one place.
+## Limitations
 
-The screenshot evidence feature uses the browser debugger API and DevTools Protocol. It is deliberately scoped by task configuration and only captures a matching audit-target origin. Browser enterprise policies can block debugger attachment or screenshot capture.
+The ChatGPT web adapter depends on the current ChatGPT DOM, so selectors can occasionally require maintenance after ChatGPT UI changes.
 
-The automation uses the normal signed-in browser UI; it does not bypass authentication, account controls, application permissions, or platform limits.
+The `debugger` permission is powerful and visible to the browser. Enterprise browser policies may prevent debugger attachment or screenshot capture.
+
+Automation stays inside the configured audit origin and does not bypass authentication, permissions, CAPTCHA, application authorization, or browser security controls.
