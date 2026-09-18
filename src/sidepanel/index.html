@@ -9,7 +9,7 @@
   <body>
     <header class="topbar">
       <div>
-        <h1>ChatGPT Agents</h1>
+        <h1>ChatGPT Agent</h1>
         <p id="summary">0 tasks</p>
       </div>
       <label class="button primary compact" for="file-input">Import JSON</label>
@@ -20,24 +20,22 @@
       <label>
         <span>Mode</span>
         <select id="default-mode">
-          <option value="manual">Manual</option>
-          <option value="assisted">Assisted</option>
-          <option value="auto">Auto</option>
+          <option value="auto">Autonomous</option>
         </select>
       </label>
       <label>
-        <span>Parallel</span>
-        <input id="max-concurrent" type="number" min="1" max="10" step="1" />
+        <span>Agents</span>
+        <input id="max-concurrent" type="number" min="1" max="1" step="1" value="1" disabled />
       </label>
       <label>
-        <span>Auto loops</span>
-        <input id="max-continuations" type="number" min="1" max="50" step="1" />
+        <span>Browser steps</span>
+        <input id="max-continuations" type="number" min="5" max="100" step="1" />
       </label>
     </section>
 
     <div class="global-actions">
-      <button id="pause-all" class="button secondary">Pause all</button>
-      <button id="resume-all" class="button secondary">Resume all</button>
+      <button id="pause-all" class="button secondary">Pause</button>
+      <button id="resume-all" class="button secondary">Resume</button>
     </div>
 
     <div id="notice" class="notice" role="status" hidden></div>
@@ -46,7 +44,7 @@
     <template id="empty-template">
       <section class="empty-state">
         <strong>No tasks loaded</strong>
-        <p>Import the task JSON file to create your agent queue.</p>
+        <p>Import a JSON task and let one agent work through it end-to-end.</p>
       </section>
     </template>
 
