@@ -62,8 +62,9 @@ function renderActions(task, agent) {
 
   return `
     <div class="actions">
-      ${!hasLiveAgent || stateName === AGENT_STATES.PAUSED ? `<button class="button primary" data-action="start" data-task-id="${esc(task.id)}">Start</button>` : ""}
-      ${canContinue ? `<button class="button primary" data-action="continue" data-task-id="${esc(task.id)}">Resume</button>` : ""}
+      ${!hasLiveAgent ? `<button class="button primary" data-action="start" data-task-id="${esc(task.id)}">Start</button>` : ""}
+      ${hasLiveAgent ? `<button class="button primary" data-action="restart" data-task-id="${esc(task.id)}">Restart</button>` : ""}
+      ${canContinue ? `<button class="button" data-action="continue" data-task-id="${esc(task.id)}">Resume</button>` : ""}
       ${agent?.tabId ? `<button class="button" data-action="open" data-task-id="${esc(task.id)}">Open Chat</button>` : ""}
       ${canPause ? `<button class="button" data-action="pause" data-task-id="${esc(task.id)}">Pause</button>` : ""}
       ${agent && ![AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED].includes(stateName) ? `<button class="button danger" data-action="cancel" data-task-id="${esc(task.id)}">Cancel</button>` : ""}
@@ -149,7 +150,11 @@ taskList.addEventListener("click", async (event) => {
   try {
     switch (button.dataset.action) {
       case "start":
-        await send({ type: MESSAGE_TYPES.START_TASK, taskId, mode: "auto" });
+        await send({ type: MESSAGE_TYPES.START_TASK, taskId, mode: "auto", forceRestart: false });
+        break;
+      case "restart":
+        await send({ type: MESSAGE_TYPES.START_TASK, taskId, mode: "auto", forceRestart: true });
+        flash("Fresh agent started.");
         break;
       case "continue":
         await send({ type: MESSAGE_TYPES.CONTINUE_TASK, taskId });
