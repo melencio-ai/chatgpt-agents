@@ -10,6 +10,7 @@ export const AGENT_STATES = Object.freeze({
   GENERATING: "GENERATING",
   RESPONSE_READY: "RESPONSE_READY",
   EVALUATING: "EVALUATING",
+  BROWSER_ACTING: "BROWSER_ACTING",
   PAUSED: "PAUSED",
   NEEDS_USER: "NEEDS_USER",
   COMPLETE: "COMPLETE",
@@ -24,9 +25,9 @@ export const EXECUTION_MODES = Object.freeze({
 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  defaultMode: EXECUTION_MODES.ASSISTED,
-  maxConcurrentAgents: 3,
-  maxAutoContinuations: 8
+  defaultMode: EXECUTION_MODES.AUTO,
+  maxConcurrentAgents: 1,
+  maxAutoContinuations: 40
 });
 
 export const TERMINAL_AGENT_STATES = new Set([
