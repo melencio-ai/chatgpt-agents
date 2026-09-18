@@ -167,12 +167,50 @@ export async function pumpQueue() {
   }
 }
 
-export async function startTask(taskId, requestedMode) {
+export async function startTask(taskId, requestedMode, forceRestart = false) {
   const task = await getTask(taskId);
   if (!task) throw new Error("Task not found.");
 
   const previous = await getAgentByTaskId(taskId);
-  if (previous && !TERMINAL_AGENT_STATES.has(previous.state) && previous.state !== AGENT_STATES.PAUSED) {
+
+  if (previous && forceRestart) {
+    await updateState((state) => {
+      const current = state.agents[previous.id];
+      if (current) {
+        state.agents[previous.id] = {
+          ...current,
+          state: AGENT_STATES.CANCELLED,
+          updatedAt: nowIso(),
+          error: "Restarted by user."
+        };
+      }
+      const run = state.runs[previous.runId];
+      if (run) {
+        state.runs[previous.runId] = {
+          ...run,
+          status: AGENT_STATES.CANCELLED,
+          completedAt: nowIso()
+        };
+      }
+      const currentTask = state.tasks[taskId];
+      if (currentTask) {
+        state.tasks[taskId] = {
+          ...currentTask,
+          chatgpt_url: "",
+          status: "Now",
+          updatedAt: nowIso()
+        };
+      }
+    });
+
+    if (previous.tabId && await tabExists(previous.tabId)) {
+      try {
+        await chrome.tabs.remove(previous.tabId);
+      } catch {
+        // The old worker tab may already be closing.
+      }
+    }
+  } else if (previous && !TERMINAL_AGENT_STATES.has(previous.state) && previous.state !== AGENT_STATES.PAUSED) {
     if (await tabExists(previous.tabId)) return previous;
   }
 
