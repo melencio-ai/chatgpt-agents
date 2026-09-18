@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "project": {
+    "title": "Dynk Full Audit",
+    "owner": "Melencio",
+    "audit_mode": "read_only",
+    "audit_target": {
+      "url": "https://app.dynk.ph/"
+    },
+    "instructions": [
+      "This is a read-only audit. Do not make, save, submit, publish, delete, configure, or otherwise execute changes in Dynk.",
+      "Do not create test bookings, payments, users, venues, franchises, or records unless the user explicitly instructs you later.",
+      "Only report findings that are supported by screenshots or clearly stated context.",
+      "When evidence is insufficient, request the exact page, role, modal, state, or viewport needed next.",
+      "Separate confirmed findings from items that still need verification.",
+      "Recommendations are allowed, but do not implement them."
+    ],
+    "deliverables": [
+      "Confirmed findings with severity: Critical, High, Medium, Low, or Observation.",
+      "For every finding include the affected screen or workflow, evidence, impact, and recommended remediation.",
+      "A section for strengths and workflows that appear correct.",
+      "A section for unverified areas and the exact evidence still needed.",
+      "A concise final audit summary with the highest-impact themes."
+    ]
+  },
+  "tasks": [
+    {
+      "id": "dynk-audit-agent-1",
+      "title": "Dynk Audit 1 - Public UX, Discovery and Booking Journeys",
+      "priority": "P3 - Normal",
+      "status": "Now",
+      "next_action": "Audit the public and customer-facing experience. Start by identifying the first screen or workflow evidence needed, then review each supplied screenshot without making changes.",
+      "audit_focus": [
+        "Public directory and venue discovery.",
+        "Active versus inactive venue presentation and Contact Venue behavior.",
+        "Venue detail pages, day pagination, availability and schedule presentation.",
+        "Open Play, Court Reservation and Walk-in booking journeys.",
+        "30-minute reservation slot presentation and booking limits.",
+        "Favorites behavior and the up-to-10 favorites rule.",
+        "Manual GCash proof-of-payment user experience and Xendit payment entry points.",
+        "Form clarity, validation, confirmation, empty states, error states and success states.",
+        "Mobile/PWA usability, responsive layout, touch targets, hierarchy, copy and accessibility.",
+        "Consistency of navigation, action placement and status communication across the customer journey."
+      ],
+      "subtasks": [
+        {
+          "title": "Audit directory, search/discovery, active/inactive venue states and favorites.",
+          "completed": false
+        },
+        {
+          "title": "Audit venue page layout, schedules, availability, day pagination and court presentation.",
+          "completed": false
+        },
+        {
+          "title": "Audit Open Play, Court Reservation and Walk-in booking journeys.",
+          "completed": false
+        },
+        {
+          "title": "Audit payment-facing UX for manual GCash and Xendit entry points without submitting payments.",
+          "completed": false
+        },
+        {
+          "title": "Audit mobile/PWA responsiveness, accessibility, validation and edge-state presentation.",
+          "completed": false
+        },
+        {
+          "title": "Produce the structured read-only audit report for this scope.",
+          "completed": false
+        }
+      ]
+    },
+    {
+      "id": "dynk-audit-agent-2",
+      "title": "Dynk Audit 2 - Franchise, Location Operations and Payments",
+      "priority": "P3 - Normal",
+      "status": "Now",
+      "next_action": "Audit franchise-owner and location-user operational workflows. Request screenshots for the exact settings, tables, drawers and states required, and do not save any changes.",
+      "audit_focus": [
+        "Franchise settings including logo, contact details, business information and global rules.",
+        "Location settings including address, logo override, GCash QR, court count, schedule, slot duration, booking limits, availability and status.",
+        "Open Play, Payments and Bookings operational tables and drawer actions.",
+        "Manual proof-of-payment review surfaces without approving or changing payment state.",
+        "Xendit configuration surfaces including API key and optional for-user-id presentation without editing credentials.",
+        "Venue activation/inactivation operational controls and clarity.",
+        "Operational filtering, pagination, search, status visibility, bulk or row actions if present.",
+        "Role-appropriate empty states, onboarding, warnings and destructive-action safeguards.",
+        "Cross-location consistency and risk of confusing franchise-level versus location-level settings."
+      ],
+      "subtasks": [
+        {
+          "title": "Audit franchise-level settings and global-rule clarity.",
+          "completed": false
+        },
+        {
+          "title": "Audit location-level settings, schedules, limits, availability and branding overrides.",
+          "completed": false
+        },
+        {
+          "title": "Audit Bookings, Open Play and Payments operational tables and drawers.",
+          "completed": false
+        },
+        {
+          "title": "Audit GCash proof-of-payment and Xendit configuration UX without changing payment state or credentials.",
+          "completed": false
+        },
+        {
+          "title": "Audit role-specific operational safeguards, warnings, empty states and action clarity.",
+          "completed": false
+        },
+        {
+          "title": "Produce the structured read-only audit report for this scope.",
+          "completed": false
+        }
+      ]
+    },
+    {
+      "id": "dynk-audit-agent-3",
+      "title": "Dynk Audit 3 - Roles, Platform Administration and System Consistency",
+      "priority": "P3 - Normal",
+      "status": "Now",
+      "next_action": "Audit platform-level administration, role boundaries and cross-system consistency. Verify only what can be observed from supplied screens and clearly label anything not proven.",
+      "audit_focus": [
+        "Super Admin, Franchise owner and Location user role boundaries as visible in navigation and available actions.",
+        "Platform statistics and administration surfaces.",
+        "Accounts and users CRUD presentation without creating, editing or deleting users.",
+        "Password-reset and email-related administration surfaces without sending messages.",
+        "Directory active/inactive controls from the administrative perspective.",
+        "Tenant and organization scoping cues that help prevent operating on the wrong franchise or location.",
+        "Cross-role navigation consistency, naming, breadcrumbs, context labels and account switch clarity.",
+        "Potential permission leakage visible in UI, such as actions appearing for roles that should not have them.",
+        "Loading, skeleton, empty, error, confirmation and destructive-action patterns across major admin pages.",
+        "Desktop/mobile consistency, accessibility, PWA behavior and obvious UI reliability issues.",
+        "Visible security and privacy concerns such as exposed secrets, overly revealing error messages or sensitive data shown without clear need."
+      ],
+      "subtasks": [
+        {
+          "title": "Audit navigation and visible permission boundaries across available roles.",
+          "completed": false
+        },
+        {
+          "title": "Audit platform statistics, accounts/users administration and account-management surfaces.",
+          "completed": false
+        },
+        {
+          "title": "Audit tenant/location context clarity and risk of acting in the wrong scope.",
+          "completed": false
+        },
+        {
+          "title": "Audit confirmations, destructive-action safeguards, loading, error and empty states across admin pages.",
+          "completed": false
+        },
+        {
+          "title": "Audit cross-system design consistency, accessibility, responsive behavior and visible security/privacy concerns.",
+          "completed": false
+        },
+        {
+          "title": "Produce the structured read-only audit report for this scope, clearly separating confirmed and unverified items.",
+          "completed": false
+        }
+      ]
+    }
+  ]
+}
