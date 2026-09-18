@@ -35,6 +35,26 @@ test("parses a project wrapper with tasks", () => {
   assert.equal(task.subtasks[0].title, "Do thing");
 });
 
+test("inherits audit defaults from the project wrapper", () => {
+  const [task] = parseTaskPayload({
+    project: {
+      title: "Audit",
+      audit_mode: "read_only",
+      audit_target: { url: "https://app.dynk.ph/" },
+      instructions: ["Do not change data"]
+    },
+    tasks: [{
+      id: "audit-1",
+      title: "Audit UX",
+      audit_focus: ["Booking flow"]
+    }]
+  });
+  assert.equal(task.audit_mode, "read_only");
+  assert.equal(task.audit_target.url, "https://app.dynk.ph/");
+  assert.deepEqual(task.audit_focus, ["Booking flow"]);
+  assert.deepEqual(task.instructions, ["Do not change data"]);
+});
+
 test("rejects a task with no title", () => {
   assert.throws(() => parseTaskPayload({ subtasks: [] }), /missing a title/i);
 });
