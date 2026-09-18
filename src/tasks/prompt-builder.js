@@ -165,6 +165,9 @@ Viewport: ${JSON.stringify(snapshot.viewport || {})}
 Visible/page text:
 ${String(snapshot.text || "").slice(0, 14000)}
 
+Supporting visual landmarks detected from the page:
+${JSON.stringify(snapshot.landmarks || {})}
+
 Detected interactive elements:
 ${renderInteractiveElements(snapshot.interactiveElements)}
 
