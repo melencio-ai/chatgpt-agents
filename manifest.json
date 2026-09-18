@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Agents Tab Manager",
-  "version": "0.2.0",
-  "description": "Manage multiple task-driven ChatGPT conversations and attach read-only audit screenshots from browser tabs.",
+  "version": "0.3.0",
+  "description": "Run one autonomous ChatGPT browser agent at a time for task execution and read-only app audits.",
   "permissions": ["storage", "tabs", "scripting", "sidePanel", "debugger"],
   "host_permissions": ["https://chatgpt.com/*"],
   "background": {
