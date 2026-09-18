@@ -283,7 +283,11 @@ async function startAutonomousAudit(agent, task) {
   await patchAgent(agent.id, { auditTabId: auditTab.id, state: AGENT_STATES.BROWSER_ACTING });
 
   await waitForTabSettled(auditTab.id);
-  const observation = await observeAuditPage(auditTab.id);
+  const state = await getState();
+  const observation = await observeAuditPage(auditTab.id, {
+    visualMouse: state.settings.visualMouse !== false,
+    agentLabel: "Agent"
+  });
   await attachObservation(
     { ...agent, auditTabId: auditTab.id },
     task,
@@ -393,7 +397,11 @@ async function continueAutonomousAudit(agent, task, directive) {
     actionResult = await executeBrowserAction(
       auditTab.id,
       task.audit_target.url,
-      directive.browserAction
+      directive.browserAction,
+      {
+        visualMouse: state.settings.visualMouse !== false,
+        agentLabel: "Agent"
+      }
     );
 
     await waitForTabSettled(auditTab.id);
@@ -412,7 +420,10 @@ async function continueAutonomousAudit(agent, task, directive) {
 
   try {
     auditTab = auditTab || await ensureAuditTab(task.audit_target.url, current.auditTabId);
-    const observation = await observeAuditPage(auditTab.id);
+    const observation = await observeAuditPage(auditTab.id, {
+      visualMouse: state.settings.visualMouse !== false,
+      agentLabel: "Agent"
+    });
     const nextStep = currentStep + 1;
     await attachObservation(
       { ...current, auditTabId: auditTab.id },

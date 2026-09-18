@@ -7,6 +7,7 @@ const summary = document.querySelector("#summary");
 const defaultMode = document.querySelector("#default-mode");
 const maxConcurrent = document.querySelector("#max-concurrent");
 const maxContinuations = document.querySelector("#max-continuations");
+const visualMouse = document.querySelector("#visual-mouse");
 const emptyTemplate = document.querySelector("#empty-template");
 
 let state = null;
@@ -176,6 +177,7 @@ function render() {
   defaultMode.value = "auto";
   maxConcurrent.value = 1;
   maxContinuations.value = state.settings?.maxAutoContinuations || 40;
+  visualMouse.checked = state.settings?.visualMouse !== false;
 
   if (!tasks.length) {
     taskList.replaceChildren(emptyTemplate.content.cloneNode(true));
@@ -256,7 +258,8 @@ async function persistSettings() {
       patch: {
         defaultMode: "auto",
         maxConcurrentAgents: 1,
-        maxAutoContinuations: Math.max(5, Number(maxContinuations.value) || 40)
+        maxAutoContinuations: Math.max(5, Number(maxContinuations.value) || 40),
+        visualMouse: visualMouse.checked
       }
     });
     state = response.state;
@@ -267,6 +270,7 @@ async function persistSettings() {
 }
 
 maxContinuations.addEventListener("change", persistSettings);
+visualMouse.addEventListener("change", persistSettings);
 
 document.querySelector("#pause-all").addEventListener("click", async () => {
   await send({ type: MESSAGE_TYPES.PAUSE_ALL });

@@ -86,6 +86,110 @@ async function evaluate(debuggee, expression) {
   return result?.result?.value;
 }
 
+
+const VISUAL_MOUSE_ID = "__chatgpt_agent_visual_mouse__";
+
+function visualMouseExpression({ visible = true, x = null, y = null, label = "Agent", click = false } = {}) {
+  const markup = '<svg data-agent-cursor width="24" height="30" viewBox="0 0 24 30" style="position:absolute;left:0;top:0;overflow:visible"><path d="M2 2 2 23 7.7 17.4 11.7 26 15.2 24.4 11.3 16H20L2 2Z" fill="#111827" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"></path></svg><div data-agent-label style="position:absolute;left:19px;top:18px;padding:3px 6px;border-radius:999px;background:#111827;color:#fff;font:600 10px/1.2 system-ui,-apple-system,Segoe UI,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.25)">Agent</div><div data-agent-ripple style="position:absolute;left:-12px;top:-12px;width:26px;height:26px;border:2px solid rgba(37,99,235,.9);border-radius:999px;opacity:0"></div>';
+  const nextX = x === null ? "previousX" : JSON.stringify(Number(x));
+  const nextY = y === null ? "previousY" : JSON.stringify(Number(y));
+
+  return `(() => {
+    const id = ${JSON.stringify(VISUAL_MOUSE_ID)};
+    let root = document.getElementById(id);
+    if (!root) {
+      root = document.createElement("div");
+      root.id = id;
+      root.setAttribute("aria-hidden", "true");
+      root.style.cssText = [
+        "position:fixed",
+        "left:0",
+        "top:0",
+        "z-index:2147483647",
+        "pointer-events:none",
+        "width:1px",
+        "height:1px",
+        "transform:translate3d(28px,28px,0)",
+        "transition:transform 180ms cubic-bezier(.2,.8,.2,1)",
+        "filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))"
+      ].join(";");
+      root.innerHTML = ${JSON.stringify(markup)};
+      document.documentElement.appendChild(root);
+    }
+
+    root.style.display = ${JSON.stringify(visible ? "block" : "none")};
+    if (!${visible ? "true" : "false"}) return { visible: false };
+
+    const previousX = Number(root.dataset.x || 28);
+    const previousY = Number(root.dataset.y || 28);
+    const nextX = Number.isFinite(Number(${nextX})) ? Number(${nextX}) : previousX;
+    const nextY = Number.isFinite(Number(${nextY})) ? Number(${nextY}) : previousY;
+    root.dataset.x = String(nextX);
+    root.dataset.y = String(nextY);
+    root.style.transform = "translate3d(" + nextX + "px, " + nextY + "px, 0)";
+
+    const labelNode = root.querySelector("[data-agent-label]");
+    if (labelNode) labelNode.textContent = ${JSON.stringify(String(label || "Agent"))};
+
+    if (${click ? "true" : "false"}) {
+      const ripple = root.querySelector("[data-agent-ripple]");
+      if (ripple && ripple.animate) {
+        ripple.animate(
+          [
+            { opacity: 0.95, transform: "scale(.45)" },
+            { opacity: 0, transform: "scale(1.55)" }
+          ],
+          { duration: 340, easing: "ease-out" }
+        );
+      }
+    }
+    return { visible: true, x: nextX, y: nextY };
+  })()`;
+}
+
+async function updateVisualMouse(debuggee, options = {}) {
+  return evaluate(debuggee, visualMouseExpression(options));
+}
+
+async function dispatchPointerMove(debuggee, x, y, { visible = true, label = "Agent" } = {}) {
+  await updateVisualMouse(debuggee, { visible, x, y, label });
+  await chrome.debugger.sendCommand(debuggee, "Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x,
+    y,
+    button: "none"
+  });
+  if (visible) await new Promise((resolve) => setTimeout(resolve, 180));
+}
+
+async function dispatchPointerClick(debuggee, x, y, { visible = true, label = "Agent" } = {}) {
+  await dispatchPointerMove(debuggee, x, y, { visible, label });
+  await updateVisualMouse(debuggee, { visible, x, y, label, click: true });
+  await chrome.debugger.sendCommand(debuggee, "Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x,
+    y,
+    button: "left",
+    buttons: 1,
+    clickCount: 1
+  });
+  await chrome.debugger.sendCommand(debuggee, "Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x,
+    y,
+    button: "left",
+    buttons: 0,
+    clickCount: 1
+  });
+}
+
+export async function setVisualMouseVisibility(tabId, visible, label = "Agent") {
+  return withDebugger(tabId, async (debuggee) => {
+    await updateVisualMouse(debuggee, { visible: Boolean(visible), label });
+    return { ok: true, visible: Boolean(visible) };
+  });
+}
+
 const SNAPSHOT_EXPRESSION = `(() => {
   const visible = (el) => {
     const style = getComputedStyle(el);
@@ -139,8 +243,13 @@ async function captureViewport(debuggee) {
   return result?.data || "";
 }
 
-export async function observeAuditPage(tabId) {
+export async function observeAuditPage(tabId, options = {}) {
   return withDebugger(tabId, async (debuggee) => {
+    const visualMouse = options.visualMouse !== false;
+    await updateVisualMouse(debuggee, {
+      visible: visualMouse,
+      label: options.agentLabel || "Agent"
+    });
     const snapshot = await evaluate(debuggee, SNAPSHOT_EXPRESSION);
     const screenshot = await captureViewport(debuggee);
     return { snapshot, screenshot };
@@ -174,9 +283,11 @@ function assertSafeNavigation(url, allowedOrigin) {
   return parsed;
 }
 
-export async function executeBrowserAction(tabId, targetUrlValue, rawAction) {
+export async function executeBrowserAction(tabId, targetUrlValue, rawAction, options = {}) {
   const action = normalizeAction(rawAction);
   const targetUrl = safeUrl(targetUrlValue);
+  const visualMouse = options.visualMouse !== false;
+  const agentLabel = options.agentLabel || "Agent";
   if (!targetUrl) throw new Error("Invalid audit target URL.");
 
   if (action.type === "wait") {
@@ -195,6 +306,8 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction) {
     if (!currentUrl || currentUrl.origin !== targetUrl.origin) {
       throw new Error("Audit tab left the allowed origin. Autonomous actions were stopped.");
     }
+
+    await updateVisualMouse(debuggee, { visible: visualMouse, label: agentLabel });
 
     if (action.type === "navigate") {
       const destination = action.url
@@ -220,10 +333,24 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction) {
 
     if (action.type === "scroll") {
       const deltaY = Math.max(-1800, Math.min(1800, Number(action.deltaY) || 700));
-      const value = await evaluate(debuggee, `(() => {
-        window.scrollBy({ top: ${JSON.stringify(deltaY)}, behavior: "instant" });
-        return { scrollY: window.scrollY, pageHeight: document.documentElement.scrollHeight };
-      })()`);
+      const pointer = await updateVisualMouse(debuggee, {
+        visible: visualMouse,
+        label: agentLabel
+      });
+      const x = Number(pointer?.x) || 28;
+      const y = Number(pointer?.y) || 28;
+      await chrome.debugger.sendCommand(debuggee, "Input.dispatchMouseEvent", {
+        type: "mouseWheel",
+        x,
+        y,
+        deltaX: 0,
+        deltaY
+      });
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      const value = await evaluate(debuggee, `(() => ({
+        scrollY: window.scrollY,
+        pageHeight: document.documentElement.scrollHeight
+      }))()`);
       return { ok: true, type: "scroll", ...value };
     }
 
@@ -251,11 +378,22 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction) {
         if (!item) return { found: false };
         if (blocked.test(item.label)) return { found: true, blocked: true, label: item.label };
         item.el.scrollIntoView({ block: "center", inline: "center" });
-        item.el.click();
-        return { found: true, blocked: false, label: item.label, tag: item.el.tagName.toLowerCase() };
+        const rect = item.el.getBoundingClientRect();
+        return {
+          found: true,
+          blocked: false,
+          label: item.label,
+          tag: item.el.tagName.toLowerCase(),
+          x: rect.left + (rect.width / 2),
+          y: rect.top + (rect.height / 2)
+        };
       })()`);
       if (!result?.found) throw new Error(`No visible clickable element found for text: ${text}`);
       if (result.blocked) throw new Error(`Read-only audit blocked state-changing control: "${result.label}".`);
+      await dispatchPointerClick(debuggee, result.x, result.y, {
+        visible: visualMouse,
+        label: agentLabel
+      });
       return { ok: true, type: "click_text", ...result };
     }
 
@@ -269,11 +407,22 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction) {
         const label = String(el.innerText || el.value || el.getAttribute("aria-label") || el.title || "").replace(/\\s+/g, " ").trim();
         if (blocked.test(label)) return { found: true, blocked: true, label };
         el.scrollIntoView({ block: "center", inline: "center" });
-        el.click();
-        return { found: true, blocked: false, label, tag: el.tagName.toLowerCase() };
+        const rect = el.getBoundingClientRect();
+        return {
+          found: true,
+          blocked: false,
+          label,
+          tag: el.tagName.toLowerCase(),
+          x: rect.left + (rect.width / 2),
+          y: rect.top + (rect.height / 2)
+        };
       })()`);
       if (!result?.found) throw new Error(`No element found for selector: ${selector}`);
       if (result.blocked) throw new Error(`Read-only audit blocked state-changing control: "${result.label}".`);
+      await dispatchPointerClick(debuggee, result.x, result.y, {
+        visible: visualMouse,
+        label: agentLabel
+      });
       return { ok: true, type: "click_selector", ...result };
     }
 

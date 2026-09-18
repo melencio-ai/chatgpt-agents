@@ -7,6 +7,7 @@ import {
 } from "../storage/repository.js";
 import { parseTaskPayload } from "../tasks/parser.js";
 import { captureTaskEvidence } from "./evidence-capture.js";
+import { setVisualMouseVisibility } from "./browser-operator.js";
 import {
   startTask,
   continueTask,
@@ -74,9 +75,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case MESSAGE_TYPES.CAPTURE_TASK_EVIDENCE:
           sendResponse({ ok: true, evidence: await captureTaskEvidence(message.taskId) });
           break;
-        case MESSAGE_TYPES.UPDATE_SETTINGS:
-          sendResponse({ ok: true, state: await setSettings(message.patch || {}) });
+        case MESSAGE_TYPES.UPDATE_SETTINGS: {
+          const state = await setSettings(message.patch || {});
+          if (Object.prototype.hasOwnProperty.call(message.patch || {}, "visualMouse")) {
+            const visible = state.settings.visualMouse !== false;
+            for (const agent of Object.values(state.agents || {})) {
+              if (!agent.auditTabId) continue;
+              try {
+                await setVisualMouseVisibility(agent.auditTabId, visible, "Agent");
+              } catch {
+                // The audited tab may have been closed or navigated away.
+              }
+            }
+          }
+          sendResponse({ ok: true, state });
           break;
+        }
         case MESSAGE_TYPES.PAUSE_ALL:
           await pauseAll();
           sendResponse({ ok: true });
