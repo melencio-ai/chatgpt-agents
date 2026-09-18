@@ -162,7 +162,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({ ok: true, ...stopRecording(message) });
           break;
         case MESSAGE_TYPES.OFFSCREEN_REVOKE_RECORDING_URL:
-          if (message.blobUrl) URL.revokeObjectURL(message.blobUrl);
+          if (message.blobUrl) {
+            setTimeout(() => URL.revokeObjectURL(message.blobUrl), 30000);
+          }
           sendResponse({ ok: true });
           break;
         default:
