@@ -464,6 +464,28 @@ export async function handleResponse(tabId, assistantText, pageUrl) {
   const task = await getTask(agent.taskId);
 
   if (isAutonomousAudit(task)) {
+    const browserState = await getState();
+    const currentAgent = browserState.agents[agent.id];
+    const recording = browserState.recordings?.[agent.taskId];
+    const recordingActive = ["starting", "recording"].includes(recording?.status);
+
+    if (
+      isTutorialTask(task) &&
+      !currentAgent?.tutorialStarted &&
+      !recordingActive &&
+      directive.status !== "COMPLETE"
+    ) {
+      await patchAgent(agent.id, {
+        state: AGENT_STATES.NEEDS_USER,
+        tutorialAwaitingRecording: true,
+        error: ""
+      });
+      await patchTask(agent.taskId, {
+        next_action: "Click Record Tutorial to begin capturing the controlled browser tab."
+      });
+      return;
+    }
+
     if (directive.status === "COMPLETE") {
       await finishAgent(agent, directive);
       return;
@@ -530,8 +552,15 @@ export async function continueTask(taskId) {
   }
 
   if (isAutonomousAudit(task)) {
-    const prompt = `Resume the autonomous read-only browser audit from the current state. Use the browser yourself and emit exactly one safe BROWSER_ACTION.`;
-    await patchAgent(agent.id, { state: AGENT_STATES.READY, error: "" });
+    const prompt = isTutorialTask(task)
+      ? `The tutorial recording is now running. Resume the read-only walkthrough from the current browser state. Move in small visible teaching steps and emit exactly one safe BROWSER_ACTION.`
+      : `Resume the autonomous read-only browser audit from the current state. Use the browser yourself and emit exactly one safe BROWSER_ACTION.`;
+    await patchAgent(agent.id, {
+      state: AGENT_STATES.READY,
+      tutorialAwaitingRecording: false,
+      tutorialStarted: isTutorialTask(task) ? true : agent.tutorialStarted,
+      error: ""
+    });
     await injectPrompt(agent, prompt);
     return (await getState()).agents[agent.id];
   }
