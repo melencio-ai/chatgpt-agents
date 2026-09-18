@@ -22,6 +22,7 @@ import {
   observeAuditPage,
   executeBrowserAction
 } from "./browser-operator.js";
+import { stopTutorialRecording } from "./tutorial-recorder.js";
 
 const ACTIVE_STATES = new Set([
   AGENT_STATES.CREATING_TAB,
@@ -46,6 +47,10 @@ function makeId(prefix) {
 
 function isAutonomousAudit(task) {
   return Boolean(task?.audit_target?.url && String(task.audit_mode || "").toLowerCase().includes("read"));
+}
+
+function isTutorialTask(task) {
+  return Boolean(task?.tutorial?.enabled);
 }
 
 async function patchAgent(agentId, patch) {
@@ -284,9 +289,10 @@ async function startAutonomousAudit(agent, task) {
 
   await waitForTabSettled(auditTab.id);
   const state = await getState();
+  const tutorialMode = isTutorialTask(task);
   const observation = await observeAuditPage(auditTab.id, {
     visualMouse: state.settings.visualMouse !== false,
-    agentLabel: "Agent"
+    agentLabel: tutorialMode ? "Guide" : "Agent"
   });
   await attachObservation(
     { ...agent, auditTabId: auditTab.id },
@@ -350,6 +356,18 @@ async function finishAgent(agent, directive) {
       };
     }
   });
+
+  const completedTask = await getTask(agent.taskId);
+  const completedState = await getState();
+  const recording = completedState.recordings?.[agent.taskId];
+  if (isTutorialTask(completedTask) && ["starting", "recording"].includes(recording?.status)) {
+    try {
+      await stopTutorialRecording(agent.taskId);
+    } catch {
+      // Preserve task completion even if recording finalization fails.
+    }
+  }
+
   await pumpQueue();
 }
 
@@ -400,7 +418,9 @@ async function continueAutonomousAudit(agent, task, directive) {
       directive.browserAction,
       {
         visualMouse: state.settings.visualMouse !== false,
-        agentLabel: "Agent"
+        agentLabel: isTutorialTask(task) ? "Guide" : "Agent",
+        tutorialMode: isTutorialTask(task),
+        tutorialPace: task.tutorial?.pace || "guided"
       }
     );
 
@@ -422,7 +442,7 @@ async function continueAutonomousAudit(agent, task, directive) {
     auditTab = auditTab || await ensureAuditTab(task.audit_target.url, current.auditTabId);
     const observation = await observeAuditPage(auditTab.id, {
       visualMouse: state.settings.visualMouse !== false,
-      agentLabel: "Agent"
+      agentLabel: isTutorialTask(task) ? "Guide" : "Agent"
     });
     const nextStep = currentStep + 1;
     await attachObservation(
@@ -457,6 +477,28 @@ export async function handleResponse(tabId, assistantText, pageUrl) {
   const task = await getTask(agent.taskId);
 
   if (isAutonomousAudit(task)) {
+    const browserState = await getState();
+    const currentAgent = browserState.agents[agent.id];
+    const recording = browserState.recordings?.[agent.taskId];
+    const recordingActive = ["starting", "recording"].includes(recording?.status);
+
+    if (
+      isTutorialTask(task) &&
+      !currentAgent?.tutorialStarted &&
+      !recordingActive &&
+      directive.status !== "COMPLETE"
+    ) {
+      await patchAgent(agent.id, {
+        state: AGENT_STATES.NEEDS_USER,
+        tutorialAwaitingRecording: true,
+        error: ""
+      });
+      await patchTask(agent.taskId, {
+        next_action: "Click Record Tutorial to begin capturing the controlled browser tab."
+      });
+      return;
+    }
+
     if (directive.status === "COMPLETE") {
       await finishAgent(agent, directive);
       return;
@@ -523,8 +565,15 @@ export async function continueTask(taskId) {
   }
 
   if (isAutonomousAudit(task)) {
-    const prompt = `Resume the autonomous read-only browser audit from the current state. Use the browser yourself and emit exactly one safe BROWSER_ACTION.`;
-    await patchAgent(agent.id, { state: AGENT_STATES.READY, error: "" });
+    const prompt = isTutorialTask(task)
+      ? `The tutorial recording is now running. Resume the read-only walkthrough from the current browser state. Move in small visible teaching steps and emit exactly one safe BROWSER_ACTION.`
+      : `Resume the autonomous read-only browser audit from the current state. Use the browser yourself and emit exactly one safe BROWSER_ACTION.`;
+    await patchAgent(agent.id, {
+      state: AGENT_STATES.READY,
+      tutorialAwaitingRecording: false,
+      tutorialStarted: isTutorialTask(task) ? true : agent.tutorialStarted,
+      error: ""
+    });
     await injectPrompt(agent, prompt);
     return (await getState()).agents[agent.id];
   }
@@ -567,6 +616,11 @@ export async function deleteTask(taskId) {
   const task = state.tasks[taskId];
   if (!task) return false;
 
+  const recording = state.recordings?.[taskId];
+  if (["starting", "recording", "stopping"].includes(recording?.status)) {
+    throw new Error("Stop the tutorial recording before deleting this task.");
+  }
+
   const taskAgents = Object.values(state.agents).filter((agent) => agent.taskId === taskId);
 
   for (const agent of taskAgents) {
@@ -594,6 +648,8 @@ export async function deleteTask(taskId) {
     for (const [runId, run] of Object.entries(draft.runs)) {
       if (run.taskId === taskId) delete draft.runs[runId];
     }
+
+    if (draft.recordings) delete draft.recordings[taskId];
   });
 
   await pumpQueue();
@@ -605,6 +661,17 @@ export async function openTaskTab(taskId) {
   if (!agent?.tabId || !(await tabExists(agent.tabId))) throw new Error("No active ChatGPT tab for this task.");
   const tab = await chrome.tabs.get(agent.tabId);
   await chrome.tabs.update(agent.tabId, { active: true });
+  if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
+  return agent;
+}
+
+export async function openBrowserTab(taskId) {
+  const agent = await getAgentByTaskId(taskId);
+  if (!agent?.auditTabId || !(await tabExists(agent.auditTabId))) {
+    throw new Error("No controlled browser tab is available yet. Start the task first.");
+  }
+  const tab = await chrome.tabs.get(agent.auditTabId);
+  await chrome.tabs.update(agent.auditTabId, { active: true });
   if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
   return agent;
 }

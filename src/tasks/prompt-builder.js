@@ -19,15 +19,20 @@ function isAutonomousAudit(task) {
   return Boolean(task.audit_target?.url && String(task.audit_mode || "").toLowerCase().includes("read"));
 }
 
+function isTutorialTask(task) {
+  return Boolean(task?.tutorial?.enabled);
+}
+
 function renderAuditContext(task) {
   if (!task.audit_mode && !task.audit_target && !task.audit_focus?.length) return "";
 
   const readOnly = String(task.audit_mode || "").toLowerCase().includes("read");
+  const tutorial = isTutorialTask(task);
   const automation = isAutonomousAudit(task)
     ? `
 
 BROWSER AUTOMATION:
-You have a browser operator controlling the audit target for you. The extension will provide a screenshot plus a structured page observation after each browser action.
+You have a browser operator controlling the ${tutorial ? "tutorial target" : "audit target"} for you. The extension will provide a screenshot plus a structured page observation after each browser action.
 
 You may request exactly ONE browser action per response using one JSON object on one line:
 BROWSER_ACTION: {"type":"inspect"}
@@ -37,6 +42,7 @@ BROWSER_ACTION: {"type":"navigate","url":"/locations/"}
 BROWSER_ACTION: {"type":"scroll","deltaY":800}
 BROWSER_ACTION: {"type":"back"}
 BROWSER_ACTION: {"type":"wait","ms":1000}
+${tutorial ? `BROWSER_ACTION: {"type":"upload_sample_csv","selector":"input[type='file']"}\nThe upload_sample_csv action is tutorial-only and uses generated dummy contacts, never real customer data.` : ""}
 
 Do not request typing, form submission, payment, saving, deletion, creation, activation/deactivation, approval/rejection, booking, favoriting, inviting, email sending, password reset, refunding, or any other state-changing action. The extension also blocks obvious state-changing controls.
 
@@ -54,8 +60,10 @@ If the extension reports a blocked/failed browser action, choose a different saf
 
   return `
 
-AUDIT MODE:
-${readOnly ? "READ-ONLY. Do not make, submit, save, delete, publish, configure, or otherwise execute changes in the audited application. Recommendations are allowed; implementation is not." : task.audit_mode || "Audit only."}
+MODE:
+${tutorial ? "TUTORIAL, READ-ONLY. Demonstrate the process clearly without committing irreversible actions or changing real customer data." : (readOnly ? "READ-ONLY. Do not make, submit, save, delete, publish, configure, or otherwise execute changes in the audited application. Recommendations are allowed; implementation is not." : task.audit_mode || "Audit only.")}
+
+${tutorial ? `TUTORIAL GUIDANCE:\n- Work in small visible steps suitable for a screen recording.\n- Prefer clicking visible labels over direct URL jumps when that teaches the viewer where controls are.\n- Pause on important screens before moving on.\n- Do not race through multiple conceptual steps.\n- Stop before the final submit/import/send/save action unless the task explicitly authorizes it.\n- The visible pointer and tutorial captions are part of the recording.` : ""}
 
 Audit target:
 ${task.audit_target?.url || "Not specified"}
@@ -154,7 +162,7 @@ ${renderInteractiveElements(snapshot.interactiveElements)}
 Previous browser action result:
 ${actionResult ? JSON.stringify(actionResult) : "Initial observation; no browser action has run yet."}
 
-Continue the audit using the browser yourself. Inspect this evidence, record any confirmed findings internally in your running audit, and choose exactly one safe next browser action. Do not ask the user to move around the site for you.
+${isTutorialTask(task) ? "Continue the tutorial using the browser yourself. Choose the next small, visible teaching step and request exactly one safe browser action. Do not ask the user to move around the site for you." : "Continue the audit using the browser yourself. Inspect this evidence, record any confirmed findings internally in your running audit, and choose exactly one safe next browser action. Do not ask the user to move around the site for you."}
 
 ${renderFooter(task)}`;
 }

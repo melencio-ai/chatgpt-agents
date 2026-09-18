@@ -91,3 +91,19 @@ test("parses non-browser directive with undefined browser action", () => {
     }
   );
 });
+
+
+test("tutorial prompt adds guide-specific browser instructions", () => {
+  const tutorialTask = {
+    ...task,
+    tutorial: { enabled: true, title: "Import contacts", pace: "guided" },
+    audit_mode: "tutorial read-only",
+    audit_target: { url: "https://app.gohighlevel.com/" },
+    audit_focus: ["Import contacts"]
+  };
+  const prompt = buildInitialPrompt(tutorialTask);
+  assert.match(prompt, /TUTORIAL, READ-ONLY/);
+  assert.match(prompt, /small visible steps/i);
+  assert.match(prompt, /screen recording/i);
+  assert.match(prompt, /BROWSER_ACTION/);
+});

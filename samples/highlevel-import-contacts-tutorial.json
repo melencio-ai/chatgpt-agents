@@ -1,0 +1,61 @@
+{
+  "title": "Create tutorial: How to import contacts in HighLevel",
+  "project": "HighLevel Tutorial Guides",
+  "owner": "Melencio",
+  "priority": "P3 - Normal",
+  "status": "Now",
+  "task_mode": "tutorial",
+  "next_action": "Prepare the HighLevel Contacts import workflow and pause before the first recorded browser action.",
+  "tutorial": {
+    "enabled": true,
+    "title": "How to Import Contacts in HighLevel",
+    "recordTabAudio": true,
+    "pace": "guided"
+  },
+  "audit_mode": "tutorial read-only",
+  "audit_target": {
+    "url": "https://app.gohighlevel.com/"
+  },
+  "audit_focus": [
+    "Contacts navigation",
+    "Import Contacts entry point",
+    "CSV requirements",
+    "Field mapping",
+    "Duplicate handling options",
+    "Final review screen"
+  ],
+  "deliverables": [
+    "Recorded browser-tab tutorial saved locally as WebM",
+    "Visible guide mouse and click feedback",
+    "On-screen tutorial action captions"
+  ],
+  "instructions": [
+    "Demonstrate the process using the logged-in HighLevel workspace already available in the browser.",
+    "Do not use or expose real customer contact data.",
+    "Do not complete the final contact import.",
+    "Stop before the irreversible import or submit action.",
+    "If login, CAPTCHA, OTP, account selection, or another human-only step blocks progress, stop and report it."
+  ],
+  "subtasks": [
+    {
+      "title": "Open Contacts",
+      "completed": false
+    },
+    {
+      "title": "Open the Import Contacts workflow",
+      "completed": false
+    },
+    {
+      "title": "Explain CSV preparation requirements",
+      "completed": false
+    },
+    {
+      "title": "Show field mapping and import options without submitting",
+      "completed": false
+    },
+    {
+      "title": "Stop on the final review screen and finish the recording",
+      "completed": false
+    }
+  ]
+}

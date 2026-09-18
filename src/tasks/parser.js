@@ -56,6 +56,34 @@ function normalizeAuditTarget(raw, projectDefaults) {
   };
 }
 
+function normalizeTutorial(raw, projectDefaults) {
+  const mode = String(raw.task_mode || raw.mode || projectDefaults.task_mode || projectDefaults.mode || "").trim().toLowerCase();
+  const value = raw.tutorial ?? projectDefaults.tutorial;
+
+  if (!value && mode !== "tutorial") return null;
+
+  if (value === true || value === undefined || value === null) {
+    return {
+      enabled: true,
+      title: String(raw.title || "Tutorial").trim(),
+      recordTabAudio: true,
+      pace: "guided"
+    };
+  }
+
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("tutorial must be true or an object.");
+  }
+
+  return {
+    ...value,
+    enabled: value.enabled !== false,
+    title: String(value.title || raw.title || "Tutorial").trim(),
+    recordTabAudio: value.recordTabAudio !== false,
+    pace: String(value.pace || "guided").trim().toLowerCase()
+  };
+}
+
 function normalizeTask(raw, index = 0, projectDefaults = {}) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error(`Task ${index + 1} must be an object.`);
@@ -94,6 +122,8 @@ function normalizeTask(raw, index = 0, projectDefaults = {}) {
     chatgpt_url: raw.chatgpt_url || "",
     confidence: raw.confidence ?? null,
     rationale: raw.rationale || "",
+    task_mode: raw.task_mode || raw.mode || projectDefaults.task_mode || projectDefaults.mode || "",
+    tutorial: normalizeTutorial(raw, projectDefaults),
     audit_mode: raw.audit_mode || projectDefaults.audit_mode || "",
     audit_target: normalizeAuditTarget(raw, projectDefaults),
     audit_focus: normalizeStringList(raw.audit_focus ?? projectDefaults.audit_focus),
