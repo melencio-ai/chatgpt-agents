@@ -155,6 +155,53 @@ async function sleep(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const TUTORIAL_CAPTION_ID = "__chatgpt_agent_tutorial_caption__";
+
+function tutorialCaptionExpression(text, visible = true) {
+  return `(() => {
+    const id = ${JSON.stringify(TUTORIAL_CAPTION_ID)};
+    let node = document.getElementById(id);
+    if (!node) {
+      node = document.createElement("div");
+      node.id = id;
+      node.setAttribute("aria-hidden", "true");
+      node.style.cssText = [
+        "position:fixed",
+        "left:50%",
+        "bottom:28px",
+        "transform:translateX(-50%)",
+        "z-index:2147483646",
+        "pointer-events:none",
+        "max-width:min(760px,80vw)",
+        "padding:9px 14px",
+        "border-radius:10px",
+        "background:rgba(17,24,39,.92)",
+        "color:#fff",
+        "font:600 13px/1.35 system-ui,-apple-system,Segoe UI,sans-serif",
+        "box-shadow:0 5px 18px rgba(0,0,0,.28)",
+        "text-align:center",
+        "backdrop-filter:blur(6px)"
+      ].join(";");
+      document.documentElement.appendChild(node);
+    }
+    node.style.display = ${JSON.stringify(visible ? "block" : "none")};
+    node.textContent = ${JSON.stringify(String(text || ""))};
+    return { visible: ${visible ? "true" : "false"} };
+  })()`;
+}
+
+async function showTutorialCaption(debuggee, text, visible = true) {
+  return evaluate(debuggee, tutorialCaptionExpression(text, visible));
+}
+
+function tutorialPauseMs(pace) {
+  switch (String(pace || "guided").toLowerCase()) {
+    case "fast": return 450;
+    case "slow": return 1400;
+    default: return 900;
+  }
+}
+
 async function dispatchPointerMove(debuggee, x, y, { visible = true, label = "Agent" } = {}) {
   const current = await updateVisualMouse(debuggee, { visible, label });
   const startX = Number(current?.x) || 28;
@@ -340,6 +387,8 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
   const targetUrl = safeUrl(targetUrlValue);
   const visualMouse = options.visualMouse !== false;
   const agentLabel = options.agentLabel || "Agent";
+  const tutorialMode = options.tutorialMode === true;
+  const tutorialDelay = tutorialPauseMs(options.tutorialPace);
   if (!targetUrl) throw new Error("Invalid audit target URL.");
 
   if (action.type === "wait") {
@@ -366,6 +415,10 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
         ? assertSafeNavigation(new URL(action.url, currentUrl.href).href, targetUrl.origin)
         : null;
       if (!destination) throw new Error("Navigate action requires url.");
+      if (tutorialMode) {
+        await showTutorialCaption(debuggee, `Open ${destination.pathname || destination.href}`);
+        await sleep(tutorialDelay);
+      }
       const result = await chrome.debugger.sendCommand(debuggee, "Page.navigate", {
         url: destination.href
       });
@@ -379,6 +432,10 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
       const entry = history?.entries?.[nextIndex];
       if (!entry) return { ok: true, type: "back", changed: false };
       const destination = assertSafeNavigation(entry.url, targetUrl.origin);
+      if (tutorialMode) {
+        await showTutorialCaption(debuggee, "Go back");
+        await sleep(tutorialDelay);
+      }
       await chrome.debugger.sendCommand(debuggee, "Page.navigateToHistoryEntry", { entryId: entry.id });
       return { ok: true, type: "back", changed: true, url: destination.href };
     }
@@ -392,6 +449,10 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
       const x = Math.max(40, Math.round((Number(viewport?.width) || 800) * 0.78));
       const y = Math.max(40, Math.round((Number(viewport?.height) || 600) * 0.68));
 
+      if (tutorialMode) {
+        await showTutorialCaption(debuggee, deltaY >= 0 ? "Scroll down" : "Scroll up");
+        await sleep(Math.round(tutorialDelay * 0.6));
+      }
       await dispatchPointerMove(debuggee, x, y, {
         visible: visualMouse,
         label: agentLabel
@@ -461,10 +522,15 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
       })()`);
       if (!result?.found) throw new Error(`No visible clickable element found for text: ${text}`);
       if (result.blocked) throw new Error(`Read-only audit blocked state-changing control: "${result.label}".`);
+      if (tutorialMode) {
+        await showTutorialCaption(debuggee, `Click ${result.label || text}`);
+        await sleep(tutorialDelay);
+      }
       await dispatchPointerClick(debuggee, result.x, result.y, {
         visible: visualMouse,
         label: agentLabel
       });
+      if (tutorialMode) await sleep(tutorialDelay);
       return { ok: true, type: "click_text", ...result };
     }
 
@@ -490,10 +556,15 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
       })()`);
       if (!result?.found) throw new Error(`No element found for selector: ${selector}`);
       if (result.blocked) throw new Error(`Read-only audit blocked state-changing control: "${result.label}".`);
+      if (tutorialMode) {
+        await showTutorialCaption(debuggee, `Click ${result.label || "the highlighted control"}`);
+        await sleep(tutorialDelay);
+      }
       await dispatchPointerClick(debuggee, result.x, result.y, {
         visible: visualMouse,
         label: agentLabel
       });
+      if (tutorialMode) await sleep(tutorialDelay);
       return { ok: true, type: "click_selector", ...result };
     }
 
