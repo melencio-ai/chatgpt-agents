@@ -46,15 +46,25 @@ function friendlyStatus(agent, task) {
   return agent.state.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (char) => char.toUpperCase());
 }
 
+function targetLabel(task) {
+  try {
+    return task.audit_target?.url ? new URL(task.audit_target.url).hostname : "";
+  } catch {
+    return "";
+  }
+}
+
 function renderActions(task, agent) {
   const stateName = agent?.state;
   const hasLiveAgent = agent && ![AGENT_STATES.COMPLETE, AGENT_STATES.ERROR, AGENT_STATES.CANCELLED].includes(stateName);
   const canContinue = agent && [AGENT_STATES.RESPONSE_READY, AGENT_STATES.NEEDS_USER, AGENT_STATES.PAUSED, AGENT_STATES.READY].includes(stateName);
   const canPause = agent && ![AGENT_STATES.PAUSED, AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED, AGENT_STATES.ERROR].includes(stateName);
+  const canCapture = Boolean(task.audit_target?.url && agent?.tabId);
 
   return `
     <div class="actions">
       ${!hasLiveAgent || stateName === AGENT_STATES.PAUSED ? `<button class="button" data-action="start" data-task-id="${esc(task.id)}">Start</button>` : ""}
+      ${canCapture ? `<button class="button" data-action="capture" data-task-id="${esc(task.id)}">Capture evidence</button>` : ""}
       ${canContinue ? `<button class="button primary" data-action="continue" data-task-id="${esc(task.id)}">Continue</button>` : ""}
       ${agent?.tabId ? `<button class="button" data-action="open" data-task-id="${esc(task.id)}">Open tab</button>` : ""}
       ${canPause ? `<button class="button" data-action="pause" data-task-id="${esc(task.id)}">Pause</button>` : ""}
@@ -67,6 +77,7 @@ function renderTask(task) {
   const completed = (task.subtasks || []).filter((item) => item.completed).length;
   const total = (task.subtasks || []).length;
   const responsePreview = agent?.lastResponse ? agent.lastResponse.slice(-700) : "";
+  const auditTarget = targetLabel(task);
 
   return `
     <article class="task-card">
@@ -81,11 +92,14 @@ function renderTask(task) {
         <div class="meta">
           <span>${total ? `${completed}/${total} subtasks` : "No subtasks"}</span>
           ${agent ? `<span>${esc(agent.mode)}</span>` : ""}
+          ${auditTarget ? `<span>audit: ${esc(auditTarget)}</span>` : ""}
+          ${agent?.evidenceCount ? `<span>${agent.evidenceCount} capture${agent.evidenceCount === 1 ? "" : "s"}</span>` : ""}
           ${agent?.continuationCount ? `<span>${agent.continuationCount} continuations</span>` : ""}
         </div>
         ${task.next_action ? `<p class="next-action"><strong>Next:</strong> ${esc(task.next_action)}</p>` : ""}
         ${(task.subtasks || []).length ? `<ul class="subtasks">${task.subtasks.map((item) => `<li class="${item.completed ? "done" : ""}"><span>${item.completed ? "✓" : "○"}</span><span>${esc(item.title)}</span></li>`).join("")}</ul>` : ""}
         ${renderActions(task, agent)}
+        ${agent?.lastEvidence?.sourceUrl ? `<div class="response">Latest evidence: ${esc(agent.lastEvidence.sourceUrl)}</div>` : ""}
         ${agent?.error ? `<div class="error">${esc(agent.error)}</div>` : ""}
         ${responsePreview ? `<div class="response">${esc(responsePreview)}</div>` : ""}
       </div>
@@ -141,6 +155,11 @@ taskList.addEventListener("click", async (event) => {
       case "start":
         await send({ type: MESSAGE_TYPES.START_TASK, taskId, mode: defaultMode.value });
         break;
+      case "capture": {
+        const response = await send({ type: MESSAGE_TYPES.CAPTURE_TASK_EVIDENCE, taskId });
+        flash(`Captured and attached: ${response.evidence.sourceUrl}`);
+        break;
+      }
       case "continue":
         await send({ type: MESSAGE_TYPES.CONTINUE_TASK, taskId });
         break;
