@@ -486,6 +486,45 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
       return { ok: true, type: "scroll", ...value };
     }
 
+    if (action.type === "upload_sample_csv") {
+      if (!tutorialMode) {
+        throw new Error("upload_sample_csv is only available in tutorial mode.");
+      }
+      const selector = String(action.selector || "input[type=\'file\']").trim();
+      await showTutorialCaption(debuggee, "Choose a safe sample CSV");
+      await sleep(tutorialDelay);
+      const csv = [
+        "First Name,Last Name,Email,Phone",
+        "Ava,Sample,ava.sample@example.com,+15555550101",
+        "Noah,Sample,noah.sample@example.com,+15555550102",
+        "Mia,Sample,mia.sample@example.com,+15555550103"
+      ].join("\\n");
+      const result = await evaluate(debuggee, `(() => {
+        const input = document.querySelector(${JSON.stringify(selector)});
+        if (!input) return { found: false };
+        if (!(input instanceof HTMLInputElement) || input.type !== "file") {
+          return { found: true, valid: false };
+        }
+        const file = new File([${JSON.stringify(csv)}], "tutorial-contacts.csv", { type: "text/csv" });
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        input.files = transfer.files;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        return {
+          found: true,
+          valid: true,
+          filename: file.name,
+          size: file.size,
+          count: transfer.files.length
+        };
+      })()`);
+      if (!result?.found) throw new Error(`No file input found for selector: ${selector}`);
+      if (!result.valid) throw new Error(`Selector does not point to a file input: ${selector}`);
+      await sleep(tutorialDelay);
+      return { ok: true, type: "upload_sample_csv", ...result };
+    }
+
     if (action.type === "click_text") {
       const text = String(action.text || "").trim();
       if (!text) throw new Error("click_text requires text.");
