@@ -88,6 +88,17 @@ function renderTask(task) {
           <small>${esc(task.project || "No project")} · ${esc(task.priority || "P3 - Normal")}</small>
         </div>
         <span class="status">${esc(friendlyStatus(agent, task))}</span>
+        <button
+          class="icon-button danger"
+          data-action="delete"
+          data-task-id="${esc(task.id)}"
+          title="Delete task"
+          aria-label="Delete task"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-1 11H8L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z"></path>
+          </svg>
+        </button>
       </div>
       <div class="task-body">
         <div class="meta">
@@ -170,6 +181,14 @@ taskList.addEventListener("click", async (event) => {
       case "cancel":
         await send({ type: MESSAGE_TYPES.CANCEL_TASK, taskId });
         break;
+      case "delete": {
+        const task = state?.tasks?.[taskId];
+        const label = task?.title || "this task";
+        if (!confirm(`Delete "${label}" and its saved run history?`)) break;
+        await send({ type: MESSAGE_TYPES.DELETE_TASK, taskId });
+        flash("Task deleted.");
+        break;
+      }
     }
     await refresh();
   } catch (error) {
