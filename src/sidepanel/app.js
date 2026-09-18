@@ -114,19 +114,19 @@ function renderActions(task, agent) {
   const hasLiveAgent = agent && ![AGENT_STATES.COMPLETE, AGENT_STATES.ERROR, AGENT_STATES.CANCELLED].includes(stateName);
   const canContinue = agent && [AGENT_STATES.RESPONSE_READY, AGENT_STATES.NEEDS_USER, AGENT_STATES.PAUSED, AGENT_STATES.READY].includes(stateName);
   const canPause = agent && ![AGENT_STATES.PAUSED, AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED, AGENT_STATES.ERROR].includes(stateName);
+  const buttons = [];
 
-  return \`
-    <div class="actions">
-      \${!hasLiveAgent ? \`<button class="button primary" data-action="start" data-task-id="\${esc(task.id)}">Start</button>\` : ""}
-      \${hasLiveAgent ? \`<button class="button primary" data-action="restart" data-task-id="\${esc(task.id)}">Restart</button>\` : ""}
-      \${canContinue ? \`<button class="button" data-action="continue" data-task-id="\${esc(task.id)}">Resume</button>\` : ""}
-      \${agent?.tabId ? \`<button class="button" data-action="open" data-task-id="\${esc(task.id)}">Open Chat</button>\` : ""}
-      \${tutorial && agent?.auditTabId ? \`<button class="button" data-action="open-browser" data-task-id="\${esc(task.id)}">Open Browser</button>\` : ""}
-      \${tutorial && agent?.auditTabId && !recordingActive ? \`<button class="button record" data-action="record-start" data-task-id="\${esc(task.id)}">Record Tutorial</button>\` : ""}
-      \${tutorial && recordingActive ? \`<button class="button recording" data-action="record-stop" data-task-id="\${esc(task.id)}">Stop Recording</button>\` : ""}
-      \${canPause ? \`<button class="button" data-action="pause" data-task-id="\${esc(task.id)}">Pause</button>\` : ""}
-      \${agent && ![AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED].includes(stateName) ? \`<button class="button danger" data-action="cancel" data-task-id="\${esc(task.id)}">Cancel</button>\` : ""}
-    </div>\`;
+  if (!hasLiveAgent) buttons.push('<button class="button primary" data-action="start" data-task-id="' + esc(task.id) + '">Start</button>');
+  if (hasLiveAgent) buttons.push('<button class="button primary" data-action="restart" data-task-id="' + esc(task.id) + '">Restart</button>');
+  if (canContinue) buttons.push('<button class="button" data-action="continue" data-task-id="' + esc(task.id) + '">Resume</button>');
+  if (agent?.tabId) buttons.push('<button class="button" data-action="open" data-task-id="' + esc(task.id) + '">Open Chat</button>');
+  if (tutorial && agent?.auditTabId) buttons.push('<button class="button" data-action="open-browser" data-task-id="' + esc(task.id) + '">Open Browser</button>');
+  if (tutorial && agent?.auditTabId && !recordingActive) buttons.push('<button class="button record" data-action="record-start" data-task-id="' + esc(task.id) + '">Record Tutorial</button>');
+  if (tutorial && recordingActive) buttons.push('<button class="button recording" data-action="record-stop" data-task-id="' + esc(task.id) + '">Stop Recording</button>');
+  if (canPause) buttons.push('<button class="button" data-action="pause" data-task-id="' + esc(task.id) + '">Pause</button>');
+  if (agent && ![AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED].includes(stateName)) buttons.push('<button class="button danger" data-action="cancel" data-task-id="' + esc(task.id) + '">Cancel</button>');
+
+  return '<div class="actions">' + buttons.join("") + '</div>';
 }
 
 function renderTask(task) {
