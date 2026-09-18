@@ -90,8 +90,12 @@ async function evaluate(debuggee, expression) {
 const VISUAL_MOUSE_ID = "__chatgpt_agent_visual_mouse__";
 
 function visualMouseExpression({ visible = true, x = null, y = null, label = "Agent", click = false } = {}) {
-  return \`(() => {
-    const id = \${JSON.stringify(VISUAL_MOUSE_ID)};
+  const markup = '<svg data-agent-cursor width="24" height="30" viewBox="0 0 24 30" style="position:absolute;left:0;top:0;overflow:visible"><path d="M2 2 2 23 7.7 17.4 11.7 26 15.2 24.4 11.3 16H20L2 2Z" fill="#111827" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"></path></svg><div data-agent-label style="position:absolute;left:19px;top:18px;padding:3px 6px;border-radius:999px;background:#111827;color:#fff;font:600 10px/1.2 system-ui,-apple-system,Segoe UI,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.25)">Agent</div><div data-agent-ripple style="position:absolute;left:-12px;top:-12px;width:26px;height:26px;border:2px solid rgba(37,99,235,.9);border-radius:999px;opacity:0"></div>';
+  const nextX = x === null ? "previousX" : JSON.stringify(Number(x));
+  const nextY = y === null ? "previousY" : JSON.stringify(Number(y));
+
+  return `(() => {
+    const id = ${JSON.stringify(VISUAL_MOUSE_ID)};
     let root = document.getElementById(id);
     if (!root) {
       root = document.createElement("div");
@@ -109,33 +113,27 @@ function visualMouseExpression({ visible = true, x = null, y = null, label = "Ag
         "transition:transform 180ms cubic-bezier(.2,.8,.2,1)",
         "filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))"
       ].join(";");
-      root.innerHTML = \\\`
-        <svg data-agent-cursor width="24" height="30" viewBox="0 0 24 30" style="position:absolute;left:0;top:0;overflow:visible">
-          <path d="M2 2 2 23 7.7 17.4 11.7 26 15.2 24.4 11.3 16H20L2 2Z" fill="#111827" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"></path>
-        </svg>
-        <div data-agent-label style="position:absolute;left:19px;top:18px;padding:3px 6px;border-radius:999px;background:#111827;color:#fff;font:600 10px/1.2 system-ui,-apple-system,Segoe UI,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.25)">Agent</div>
-        <div data-agent-ripple style="position:absolute;left:-12px;top:-12px;width:26px;height:26px;border:2px solid rgba(37,99,235,.9);border-radius:999px;opacity:0"></div>
-      \\\`;
+      root.innerHTML = ${JSON.stringify(markup)};
       document.documentElement.appendChild(root);
     }
 
-    root.style.display = \${visible ? JSON.stringify("block") : JSON.stringify("none")};
-    if (!\${visible ? "true" : "false"}) return { visible: false };
+    root.style.display = ${JSON.stringify(visible ? "block" : "none")};
+    if (!${visible ? "true" : "false"}) return { visible: false };
 
     const previousX = Number(root.dataset.x || 28);
     const previousY = Number(root.dataset.y || 28);
-    const nextX = Number.isFinite(\${x === null ? "NaN" : JSON.stringify(Number(x))}) ? \${x === null ? "previousX" : JSON.stringify(Number(x))} : previousX;
-    const nextY = Number.isFinite(\${y === null ? "NaN" : JSON.stringify(Number(y))}) ? \${y === null ? "previousY" : JSON.stringify(Number(y))} : previousY;
+    const nextX = Number.isFinite(Number(${nextX})) ? Number(${nextX}) : previousX;
+    const nextY = Number.isFinite(Number(${nextY})) ? Number(${nextY}) : previousY;
     root.dataset.x = String(nextX);
     root.dataset.y = String(nextY);
-    root.style.transform = \\\`translate3d(\${nextX}px, \${nextY}px, 0)\\\`;
+    root.style.transform = "translate3d(" + nextX + "px, " + nextY + "px, 0)";
 
     const labelNode = root.querySelector("[data-agent-label]");
-    if (labelNode) labelNode.textContent = \${JSON.stringify(String(label || "Agent"))};
+    if (labelNode) labelNode.textContent = ${JSON.stringify(String(label || "Agent"))};
 
-    if (\${click ? "true" : "false"}) {
+    if (${click ? "true" : "false"}) {
       const ripple = root.querySelector("[data-agent-ripple]");
-      if (ripple?.animate) {
+      if (ripple && ripple.animate) {
         ripple.animate(
           [
             { opacity: 0.95, transform: "scale(.45)" },
@@ -146,7 +144,7 @@ function visualMouseExpression({ visible = true, x = null, y = null, label = "Ag
       }
     }
     return { visible: true, x: nextX, y: nextY };
-  })()\`;
+  })()`;
 }
 
 async function updateVisualMouse(debuggee, options = {}) {
