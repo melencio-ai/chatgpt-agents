@@ -1,10 +1,22 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Agents Tab Manager",
-  "version": "0.4.1",
-  "description": "Run one autonomous ChatGPT browser agent at a time for task execution and read-only app audits.",
-  "permissions": ["storage", "tabs", "scripting", "sidePanel", "debugger"],
-  "host_permissions": ["https://chatgpt.com/*"],
+  "version": "0.5.0",
+  "description": "Run autonomous ChatGPT browser agents, read-only app audits, and tab-recorded tutorial guides.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "sidePanel",
+    "debugger",
+    "activeTab",
+    "tabCapture",
+    "offscreen",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*"
+  ],
   "background": {
     "service_worker": "src/background/service-worker.js",
     "type": "module"
@@ -17,9 +29,14 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*"],
-      "js": ["src/content/chatgpt-content.js"],
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "src/content/chatgpt-content.js"
+      ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "minimum_chrome_version": "116"
 }
