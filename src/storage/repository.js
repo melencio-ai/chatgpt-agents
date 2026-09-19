@@ -21,10 +21,20 @@ export function createEmptyState() {
 function mergeDefaults(value) {
   const base = createEmptyState();
   if (!value || typeof value !== "object") return base;
+
+  const { recordings: _legacyRecordings, ...rest } = value;
+  const tasks = value.tasks && typeof value.tasks === "object"
+    ? Object.fromEntries(Object.entries(value.tasks).map(([id, task]) => {
+        if (!task?.tutorial || typeof task.tutorial !== "object") return [id, task];
+        const { recordTabAudio: _recordTabAudio, fps: _fps, ...tutorial } = task.tutorial;
+        return [id, { ...task, tutorial }];
+      }))
+    : {};
+
   return {
     ...base,
-    ...value,
-    tasks: value.tasks && typeof value.tasks === "object" ? value.tasks : {},
+    ...rest,
+    tasks,
     agents: value.agents && typeof value.agents === "object" ? value.agents : {},
     runs: value.runs && typeof value.runs === "object" ? value.runs : {},
     settings: {
