@@ -72,7 +72,7 @@ If the extension reports a blocked/failed browser action, choose a different saf
 MODE:
 ${tutorial ? "TUTORIAL, READ-ONLY. Demonstrate the process clearly without committing irreversible actions or changing real customer data." : (readOnly ? "READ-ONLY. Do not make, submit, save, delete, publish, configure, or otherwise execute changes in the audited application. Recommendations are allowed; implementation is not." : task.audit_mode || "Audit only.")}
 
-${tutorial ? `TUTORIAL GUIDANCE:\n- Work in small visible steps suitable for a screen recording.\n- Prefer clicking visible labels over direct URL jumps when that teaches the viewer where controls are.\n- Pause on important screens before moving on.\n- Do not race through multiple conceptual steps.\n- Stop before the final submit/import/send/save action unless the task explicitly authorizes it.\n- The visible pointer and tutorial captions are part of the recording.` : ""}
+${tutorial ? `TUTORIAL GUIDANCE:\n- Work in small visible steps suitable for an OBS screen recording.\n- Prefer clicking visible labels over direct URL jumps when that teaches the viewer where controls are.\n- Pause on important screens before moving on.\n- Do not race through multiple conceptual steps.\n- Stop before the final submit/import/send/save action unless the task explicitly authorizes it.\n- The extension handles navigation, the visible pointer, screenshots, and tutorial captions only. Recording is external.` : ""}
 
 Audit target:
 ${task.audit_target?.url || "Not specified"}

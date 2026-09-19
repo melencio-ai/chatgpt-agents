@@ -22,7 +22,6 @@ import {
   observeAuditPage,
   executeBrowserAction
 } from "./browser-operator.js";
-import { stopTutorialRecording } from "./tutorial-recorder.js";
 
 const ACTIVE_STATES = new Set([
   AGENT_STATES.CREATING_TAB,
@@ -94,6 +93,19 @@ async function waitForTabSettled(tabId, timeoutMs = 12000) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
+
+async function focusBrowserTab(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    await chrome.tabs.update(tabId, { active: true });
+    if (tab.windowId !== undefined) {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
+  } catch {
+    // The browser tab may have closed between steps.
+  }
+}
+
 
 async function createRun(taskId, mode) {
   const agentId = makeId("agent");
@@ -287,6 +299,7 @@ async function startAutonomousAudit(agent, task) {
   const auditTab = await ensureAuditTab(task.audit_target.url, agent.auditTabId);
   await patchAgent(agent.id, { auditTabId: auditTab.id, state: AGENT_STATES.BROWSER_ACTING });
 
+  if (isTutorialTask(task)) await focusBrowserTab(auditTab.id);
   await waitForTabSettled(auditTab.id);
   const state = await getState();
   const tutorialMode = isTutorialTask(task);
@@ -356,18 +369,6 @@ async function finishAgent(agent, directive) {
       };
     }
   });
-
-  const completedTask = await getTask(agent.taskId);
-  const completedState = await getState();
-  const recording = completedState.recordings?.[agent.taskId];
-  if (isTutorialTask(completedTask) && ["starting", "recording"].includes(recording?.status)) {
-    try {
-      await stopTutorialRecording(agent.taskId);
-    } catch {
-      // Preserve task completion even if recording finalization fails.
-    }
-  }
-
   await pumpQueue();
 }
 
@@ -411,6 +412,7 @@ async function continueAutonomousAudit(agent, task, directive) {
   try {
     auditTab = await ensureAuditTab(task.audit_target.url, current.auditTabId);
     await patchAgent(agent.id, { auditTabId: auditTab.id });
+    if (isTutorialTask(task)) await focusBrowserTab(auditTab.id);
 
     actionResult = await executeBrowserAction(
       auditTab.id,
@@ -477,28 +479,6 @@ export async function handleResponse(tabId, assistantText, pageUrl) {
   const task = await getTask(agent.taskId);
 
   if (isAutonomousAudit(task)) {
-    const browserState = await getState();
-    const currentAgent = browserState.agents[agent.id];
-    const recording = browserState.recordings?.[agent.taskId];
-    const recordingActive = ["starting", "recording"].includes(recording?.status);
-
-    if (
-      isTutorialTask(task) &&
-      !currentAgent?.tutorialStarted &&
-      !recordingActive &&
-      directive.status !== "COMPLETE"
-    ) {
-      await patchAgent(agent.id, {
-        state: AGENT_STATES.NEEDS_USER,
-        tutorialAwaitingRecording: true,
-        error: ""
-      });
-      await patchTask(agent.taskId, {
-        next_action: "Click Record Tutorial to begin capturing the controlled browser tab."
-      });
-      return;
-    }
-
     if (directive.status === "COMPLETE") {
       await finishAgent(agent, directive);
       return;
@@ -566,12 +546,10 @@ export async function continueTask(taskId) {
 
   if (isAutonomousAudit(task)) {
     const prompt = isTutorialTask(task)
-      ? `The tutorial recording is now running. Resume the read-only walkthrough from the current browser state. Move in small visible teaching steps and emit exactly one safe BROWSER_ACTION.`
+      ? `Resume the read-only tutorial walkthrough from the current browser state. Move in small visible teaching steps and emit exactly one safe BROWSER_ACTION.`
       : `Resume the autonomous read-only browser audit from the current state. Use the browser yourself and emit exactly one safe BROWSER_ACTION.`;
     await patchAgent(agent.id, {
       state: AGENT_STATES.READY,
-      tutorialAwaitingRecording: false,
-      tutorialStarted: isTutorialTask(task) ? true : agent.tutorialStarted,
       error: ""
     });
     await injectPrompt(agent, prompt);
@@ -616,11 +594,6 @@ export async function deleteTask(taskId) {
   const task = state.tasks[taskId];
   if (!task) return false;
 
-  const recording = state.recordings?.[taskId];
-  if (["starting", "recording", "stopping"].includes(recording?.status)) {
-    throw new Error("Stop the tutorial recording before deleting this task.");
-  }
-
   const taskAgents = Object.values(state.agents).filter((agent) => agent.taskId === taskId);
 
   for (const agent of taskAgents) {
@@ -648,8 +621,6 @@ export async function deleteTask(taskId) {
     for (const [runId, run] of Object.entries(draft.runs)) {
       if (run.taskId === taskId) delete draft.runs[runId];
     }
-
-    if (draft.recordings) delete draft.recordings[taskId];
   });
 
   await pumpQueue();

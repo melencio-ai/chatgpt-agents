@@ -66,7 +66,6 @@ function normalizeTutorial(raw, projectDefaults) {
     return {
       enabled: true,
       title: String(raw.title || "Tutorial").trim(),
-      recordTabAudio: false,
       pace: "guided"
     };
   }
@@ -76,10 +75,8 @@ function normalizeTutorial(raw, projectDefaults) {
   }
 
   return {
-    ...value,
     enabled: value.enabled !== false,
     title: String(value.title || raw.title || "Tutorial").trim(),
-    recordTabAudio: value.recordTabAudio !== false,
     pace: String(value.pace || "guided").trim().toLowerCase()
   };
 }
