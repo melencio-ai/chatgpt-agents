@@ -129,9 +129,13 @@ ${renderFooter(task)}`;
 }
 
 export function buildContinuationPrompt(task, continuationNumber = 1) {
+  const next = task.next_action || incompleteSubtasks(task)[0]?.title || "Proceed with the next incomplete item.";
   return `Continue working on: ${task.title}.
 
 This is continuation ${continuationNumber}. Review what has already been completed in this conversation, then proceed with the next incomplete item. Do not repeat completed work. If execution is possible, do it now.${renderAuditContext(task)}
+
+Next action from the previous response:
+${next}
 
 ${renderFooter(task)}`;
 }
@@ -177,8 +181,16 @@ ${isTutorialTask(task) ? "Continue the tutorial using the browser yourself. Visu
 ${renderFooter(task)}`;
 }
 
+function lastDirectiveMatch(value, pattern) {
+  const matches = Array.from(value.matchAll(pattern));
+  return matches.length ? matches[matches.length - 1] : null;
+}
+
 function parseBrowserAction(value) {
-  const match = value.match(/(?:^|\n)BROWSER_ACTION:\s*(.+?)\s*(?:\n|$)/i);
+  const match = lastDirectiveMatch(
+    value,
+    /^[ \t]*(?:[-*]\s*)?BROWSER_ACTION:\s*(.+?)\s*$/gim
+  );
   if (!match) return undefined;
   const raw = match[1].trim();
   if (/^null$/i.test(raw)) return null;
@@ -192,8 +204,14 @@ function parseBrowserAction(value) {
 
 export function parseAgentDirective(text) {
   const value = String(text || "");
-  const statusMatch = value.match(/(?:^|\n)AGENT_STATUS:\s*(CONTINUE|COMPLETE|BLOCKED)\s*(?:\n|$)/i);
-  const nextMatch = value.match(/(?:^|\n)NEXT_ACTION:\s*(.+?)\s*(?:\n|$)/i);
+  const statusMatch = lastDirectiveMatch(
+    value,
+    /^[ \t]*(?:[-*]\s*)?AGENT_STATUS:\s*(CONTINUE|COMPLETE|BLOCKED)\s*$/gim
+  );
+  const nextMatch = lastDirectiveMatch(
+    value,
+    /^[ \t]*(?:[-*]\s*)?NEXT_ACTION:\s*(.*?)\s*$/gim
+  );
   return {
     status: statusMatch ? statusMatch[1].toUpperCase() : null,
     nextAction: nextMatch ? nextMatch[1].trim() : "",
