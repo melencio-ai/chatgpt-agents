@@ -1,0 +1,137 @@
+{
+  "id": "evnts-tagos-puso-embedded-ticketing-mvp",
+  "title": "Build Tagos Puso embedded ticketing MVP in EVNTS staging",
+  "project": "EVNTS — Tagos Puso Embedded Ticketing",
+  "owner": "Melencio",
+  "due_date": null,
+  "priority": "P1 - Critical",
+  "status": "Now",
+  "waiting_on": "",
+  "chatgpt_url": "",
+  "confidence": 0.95,
+  "rationale": "Extend EVNTS with a contained embedded ticketing module for Tagos Puso while keeping the public marketing website separate. Build and validate entirely in staging before any production release.",
+  "next_action": "Perform a staging preflight: inspect the current melencio-ai/evnts staging branch and Railway caring-dream staging environment, confirm main and staging baseline, review existing Event, Registrant, QR, scanner, email, Celery and event-scoped access code, then begin Stage 1 without changing production.",
+  "audit_mode": "IMPLEMENTATION MODE. You are authorized to inspect, modify, test, commit, open pull requests, merge into the EVNTS staging branch, and use Railway staging. Production is NOT authorized. Work autonomously and make concrete changes rather than only describing them.",
+  "instructions": [
+    "Repository: melencio-ai/evnts.",
+    "Railway project: caring-dream.",
+    "Target environment: staging only.",
+    "Target Git branch for completed work: staging.",
+    "Do not merge to main and do not modify or redeploy the production environment during this task.",
+    "Before each implementation stage, branch from the latest staging branch. Keep each stage focused and reviewable.",
+    "Reuse existing EVNTS Event, Registrant, QR, scanner, email-template, Celery/background-job, export, user-access and event-scoped permission infrastructure where appropriate. Do not rebuild working EVNTS capabilities unnecessarily.",
+    "Run relevant automated tests and Django checks before opening or merging each pull request. Add regression tests for new behavior.",
+    "MERGE/DEPLOY GATE — this rule is mandatory after every merge into staging: immediately stop all feature coding after the merge. Identify the merged commit SHA and monitor Railway project caring-dream, environment staging. Do not begin the next implementation stage until the deployments triggered by that merge have reached SUCCESS.",
+    "For the Railway gate, check the staging app services web, worker, beat, quotation and quotation-v2 when they are triggered by the merge. Postgres and Redis are infrastructure dependencies and must not be recreated or modified just to satisfy the gate.",
+    "If Railway reports INITIALIZING, QUEUED, BUILDING or DEPLOYING, do not code. Continue checking deployment status. In this state respond AGENT_STATUS: CONTINUE and NEXT_ACTION: Recheck the Railway staging deployment; do not start new feature work yet.",
+    "If any staging deployment reports FAILED or CRASHED, inspect the build/deploy logs, diagnose the failure, create the smallest safe fix on a branch from staging, test it, merge the fix into staging, and restart the same Railway gate. Do not continue to the next feature stage until staging is green.",
+    "A merge is not considered complete for this project until the corresponding Railway staging deploy is successful.",
+    "Use additive, backward-compatible Django migrations. Do not destroy or rewrite existing production-oriented data models.",
+    "Never copy production database data into staging as part of this implementation.",
+    "Use Stripe test mode for staging. Stripe secret keys and webhook secrets must remain server-side and must never be exposed in the embed script.",
+    "The public embed must use a public event identifier/config token only. Never expose admin credentials, database credentials or Stripe secrets.",
+    "Prefer a small embeddable JavaScript widget loaded from EVNTS. Avoid an iframe unless isolation is technically necessary.",
+    "The host website owns marketing content. EVNTS owns ticket selection, buyer capture, payments, seating, ticket issuance and admission validation.",
+    "The MVP buyer journey is: load embed -> choose ticket tier and quantity -> enter buyer details -> create order -> Stripe payment -> verified paid entitlement -> secure seat selection -> seat assignment -> QR ticket -> ticket email -> venue scan.",
+    "Payment success must be based on a verified server-side Stripe webhook, not only a browser success redirect.",
+    "Make Stripe webhook processing idempotent so retries cannot duplicate payments, entitlements or tickets.",
+    "Seat inventory must support sections, rows, seat labels/numbers, tier restrictions, blocked seats, available seats, temporary holds and sold/assigned seats.",
+    "Seat assignment must be concurrency-safe. Use database constraints/transactions/locking as appropriate so two buyers cannot own the same seat.",
+    "A buyer may select no more seats than the quantity of valid paid entitlements in the order.",
+    "Expired seat holds must safely return to available inventory without releasing already sold seats.",
+    "Seat-selection access after payment must use a secure, unguessable, expiring token or equivalent secure mechanism.",
+    "Do not fabricate the exact Scottish Rite seat geometry. Build the seat-map system to accept verified Tagos venue seat data, and use only verified seat-map information available in the repo/project context.",
+    "The interactive seat selector must be usable on desktop and mobile, with clear Available, Selected, Held, Sold and Blocked states plus zoom/pan if the layout requires it.",
+    "QR credentials must remain unique and compatible with the existing EVNTS scanner architecture where practical.",
+    "Scanner results for Tagos tickets must show attendee/ticket identity, ticket tier and assigned seat, and must reject duplicate, invalid or cancelled credentials.",
+    "Keep EVNTS admin UI compact and consistent with the existing operations UI. Add only the admin surfaces required for the MVP: ticketing configuration, orders, payments, tickets, seat inventory/assignment and basic sales/attendance reporting.",
+    "Do not add promo codes, dynamic pricing, multi-currency, purchaser accounts, complex POS, split payments, partial refunds or a graphical seat-map designer in this MVP unless required to complete an already-started core flow.",
+    "Keep the staging system usable after every merged stage. Do not leave partially applied migrations or broken routes between stages.",
+    "Use the existing staging domain and environment configuration. Do not change production domains.",
+    "When a stage is complete and its Railway deployment is green, continue autonomously to the next stage.",
+    "Only return AGENT_STATUS: COMPLETE after every implementation stage, the final end-to-end staging test and the final Railway staging deployment are successful.",
+    "Use AGENT_STATUS: BLOCKED only for a genuine external blocker such as missing credentials/permissions or missing venue data that prevents further safe implementation. Do not use BLOCKED merely because a deployment is still building."
+  ],
+  "deliverables": [
+    "Embedded ticketing JavaScript integration for a Tagos event.",
+    "Ticket tiers and inventory configuration in EVNTS.",
+    "Buyer and order capture.",
+    "Stripe test checkout plus verified/idempotent webhook handling.",
+    "Paid ticket entitlements.",
+    "Configurable seat inventory with safe temporary holds and assignment.",
+    "Responsive interactive seat selection after payment.",
+    "Secure post-payment seat-selection access.",
+    "Unique QR tickets and ticket delivery email.",
+    "Existing EVNTS scanner support for paid tickets and assigned seats.",
+    "Compact EVNTS admin views for orders, payments, tickets and seats.",
+    "Basic sales, remaining inventory and attendance reporting.",
+    "Automated tests for payment idempotency, seat concurrency, entitlement limits and scanner validation.",
+    "Staging end-to-end acceptance test with all Railway staging app services green."
+  ],
+  "subtasks": [
+    {
+      "title": "Stage 0 — Preflight current staging code and Railway environment; map reusable EVNTS components and confirm production will remain untouched",
+      "completed": false
+    },
+    {
+      "title": "Stage 1 — Implement ticketing foundation: event ticketing settings, ticket tiers, orders, order items/entitlements, payments, tickets and additive migrations; test; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 2 — Add compact EVNTS admin configuration for ticketing tiers, prices, inventory and sales availability; test; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 3 — Build public embed API and embeddable ticketing.js shell with event public identifier, responsive tier/quantity selector and buyer details flow; test; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 4 — Implement Stripe test checkout, order/payment lifecycle, success/cancel handling and verified idempotent webhooks; test payment retry safety; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 5 — Implement seat inventory backend: sections, rows, seats, tier eligibility, blocked/available/held/sold states, expiring holds and concurrency-safe unique assignment; test race conditions; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 6 — Build responsive interactive seat selector inside the embed, enforcing paid entitlement quantity and ticket-tier eligibility with clear seat states and mobile usability; test; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 7 — Implement secure post-payment seat-selection access and final seat assignment flow, including reopening incomplete paid orders and safely expiring unused holds; test; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 8 — Generate unique QR tickets after valid payment/seat assignment, create final ticket view/email, and add resend support using existing EVNTS email infrastructure; test; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 9 — Upgrade existing EVNTS scanner for Tagos paid tickets: validate ticket state, display tier and seat, prevent duplicate admission and preserve existing registration scanning; test; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 10 — Add compact admin operations for orders, payments, tickets and seating, including search/filter/detail and safe manual seat administration needed for event operations; test; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 11 — Add basic Tagos sales/attendance reporting and exports: revenue, tickets sold, remaining inventory, sales by tier, assigned seats and checked-in count; test; merge to staging; WAIT FOR RAILWAY STAGING SUCCESS",
+      "completed": false
+    },
+    {
+      "title": "Stage 12 — Perform full staging end-to-end QA: embed -> tier/quantity -> buyer -> Stripe test payment -> verified webhook -> secure seat selection -> seat assignment -> QR email -> scanner check-in",
+      "completed": false
+    },
+    {
+      "title": "Stage 13 — Test failure and edge cases: duplicate Stripe webhook, abandoned payment, abandoned seat hold, expired hold, simultaneous seat claim, oversubscribed quantity, duplicate QR scan, invalid ticket and mobile embed behavior",
+      "completed": false
+    },
+    {
+      "title": "Stage 14 — Fix all staging QA findings through focused PRs; after every fix merge WAIT FOR RAILWAY STAGING SUCCESS; repeat until tests and staging acceptance are green",
+      "completed": false
+    },
+    {
+      "title": "Stage 15 — Final staging readiness review: confirm staging branch contains all Tagos MVP work, no main/production changes were made, migrations are healthy, all Railway staging app services are SUCCESS, and provide concise test instructions for Melencio",
+      "completed": false
+    }
+  ]
+}
