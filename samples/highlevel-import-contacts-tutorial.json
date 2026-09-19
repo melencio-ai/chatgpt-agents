@@ -5,11 +5,10 @@
   "priority": "P3 - Normal",
   "status": "Now",
   "task_mode": "tutorial",
-  "next_action": "Prepare the HighLevel Contacts import workflow and pause before the first recorded browser action.",
+  "next_action": "Open the Xilbee HighLevel location, inspect the screenshot, and begin the guided Contacts import walkthrough.",
   "tutorial": {
     "enabled": true,
     "title": "How to Import Contacts in HighLevel",
-    "recordTabAudio": false,
     "pace": "guided"
   },
   "audit_mode": "tutorial read-only",
@@ -25,11 +24,12 @@
     "Final review screen"
   ],
   "deliverables": [
-    "Recorded browser-tab tutorial saved locally as WebM",
     "Visible guide mouse and click feedback",
-    "On-screen tutorial action captions"
+    "On-screen tutorial action captions",
+    "Screenshot-aware walkthrough through the final review screen"
   ],
   "instructions": [
+    "Start OBS before clicking Start if you want to record the walkthrough.",
     "Demonstrate the process using the logged-in HighLevel workspace already available in the browser.",
     "Do not use or expose real customer contact data.",
     "Do not complete the final contact import.",
@@ -54,7 +54,7 @@
       "completed": false
     },
     {
-      "title": "Stop on the final review screen and finish the recording",
+      "title": "Stop on the final review screen",
       "completed": false
     }
   ]
