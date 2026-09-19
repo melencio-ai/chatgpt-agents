@@ -119,6 +119,28 @@
     return "";
   }
 
+  function hasAgentDirective(text) {
+    return /^[ \t]*(?:[-*]\s*)?AGENT_STATUS:\s*(CONTINUE|COMPLETE|BLOCKED)\s*$/im.test(
+      String(text || "")
+    );
+  }
+
+  function reportLatestAssistant({ allowUnsubmitted = false } = {}) {
+    if (isGenerating()) return false;
+    const latest = getLatestAssistantText();
+    if (!latest || latest === lastReportedAssistantText) return false;
+    if (!submittedByExtension && !(allowUnsubmitted && hasAgentDirective(latest))) return false;
+
+    lastReportedAssistantText = latest;
+    submittedByExtension = false;
+    safeSend({
+      type: MESSAGE_TYPES.CHATGPT_RESPONSE,
+      text: latest,
+      url: location.href
+    });
+    return true;
+  }
+
   function setNativeValue(element, value) {
     if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
       const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -311,20 +333,11 @@
     }
     lastGenerating = generating;
 
-    if (!submittedByExtension || generating) return;
+    if (generating) return;
 
     clearTimeout(settleTimer);
     settleTimer = setTimeout(() => {
-      if (isGenerating()) return;
-      const latest = getLatestAssistantText();
-      if (!latest || latest === lastReportedAssistantText) return;
-      lastReportedAssistantText = latest;
-      submittedByExtension = false;
-      safeSend({
-        type: MESSAGE_TYPES.CHATGPT_RESPONSE,
-        text: latest,
-        url: location.href
-      });
+      reportLatestAssistant({ allowUnsubmitted: true });
     }, 1200);
   }
 
@@ -374,6 +387,9 @@
 
   function announceReady() {
     safeSend({ type: MESSAGE_TYPES.CHATGPT_PAGE_READY, url: location.href });
+    setTimeout(() => {
+      reportLatestAssistant({ allowUnsubmitted: true });
+    }, 1000);
   }
 
   if (document.readyState === "loading") {
@@ -388,5 +404,6 @@
       previousUrl = location.href;
       safeSend({ type: MESSAGE_TYPES.CHATGPT_PAGE_READY, url: location.href });
     }
-  }, 1000);
+    reportLatestAssistant({ allowUnsubmitted: true });
+  }, 1500);
 })();
