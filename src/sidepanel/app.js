@@ -108,8 +108,6 @@ function targetLabel(task) {
 
 function renderActions(task, agent) {
   const stateName = agent?.state;
-  const recording = state?.recordings?.[task.id] || null;
-  const recordingActive = ["starting", "recording", "stopping"].includes(recording?.status);
   const tutorial = Boolean(task.tutorial?.enabled);
   const hasLiveAgent = agent && ![AGENT_STATES.COMPLETE, AGENT_STATES.ERROR, AGENT_STATES.CANCELLED].includes(stateName);
   const canContinue = agent && [AGENT_STATES.RESPONSE_READY, AGENT_STATES.NEEDS_USER, AGENT_STATES.PAUSED, AGENT_STATES.READY].includes(stateName);
@@ -117,12 +115,10 @@ function renderActions(task, agent) {
   const buttons = [];
 
   if (!hasLiveAgent) buttons.push('<button class="button primary" data-action="start" data-task-id="' + esc(task.id) + '">Start</button>');
-  if (hasLiveAgent && !recordingActive) buttons.push('<button class="button primary" data-action="restart" data-task-id="' + esc(task.id) + '">Restart</button>');
+  if (hasLiveAgent) buttons.push('<button class="button primary" data-action="restart" data-task-id="' + esc(task.id) + '">Restart</button>');
   if (canContinue) buttons.push('<button class="button" data-action="continue" data-task-id="' + esc(task.id) + '">Resume</button>');
   if (agent?.tabId) buttons.push('<button class="button" data-action="open" data-task-id="' + esc(task.id) + '">Open Chat</button>');
   if (tutorial && agent?.auditTabId) buttons.push('<button class="button" data-action="open-browser" data-task-id="' + esc(task.id) + '">Open Browser</button>');
-  if (tutorial && agent?.auditTabId && !recordingActive) buttons.push('<button class="button record" data-action="record-start" data-task-id="' + esc(task.id) + '">Record Tutorial</button>');
-  if (tutorial && recordingActive) buttons.push('<button class="button recording" data-action="record-stop" data-task-id="' + esc(task.id) + '">Stop Recording</button>');
   if (canPause) buttons.push('<button class="button" data-action="pause" data-task-id="' + esc(task.id) + '">Pause</button>');
   if (agent && ![AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED].includes(stateName)) buttons.push('<button class="button danger" data-action="cancel" data-task-id="' + esc(task.id) + '">Cancel</button>');
 
@@ -136,7 +132,6 @@ function renderTask(task) {
   const responsePreview = agent?.lastResponse ? agent.lastResponse.slice(-700) : "";
   const auditTarget = targetLabel(task);
   const runtime = runtimeForAgent(agent);
-  const recording = state?.recordings?.[task.id] || null;
   const tutorial = Boolean(task.tutorial?.enabled);
 
   return `
@@ -165,15 +160,11 @@ function renderTask(task) {
           ${runtime ? `<span class="runtime ${runtime.live ? "live" : runtime.paused ? "paused" : "finished"}"><i></i>${runtime.live ? "LIVE" : runtime.paused ? "PAUSED" : "RUNTIME"} · ${runtime.elapsed}</span>` : ""}
           ${tutorial ? `<span class="tutorial-badge">TUTORIAL</span>` : ""}
           ${auditTarget ? `<span>browser: ${esc(auditTarget)}</span>` : ""}
-          ${recording ? `<span class="recording-state ${esc(recording.status)}"><i></i>${esc(recording.status)}</span>` : ""}
           ${agent?.browserStepCount ? `<span>step ${agent.browserStepCount}</span>` : ""}
         </div>
         ${task.next_action ? `<p class="next-action"><strong>Goal:</strong> ${esc(task.next_action)}</p>` : ""}
         ${(task.subtasks || []).length ? `<ul class="subtasks">${task.subtasks.map((item) => `<li class="${item.completed ? "done" : ""}"><span>${item.completed ? "✓" : "○"}</span><span>${esc(item.title)}</span></li>`).join("")}</ul>` : ""}
         ${renderActions(task, agent)}
-        ${tutorial && !agent?.auditTabId ? `<div class="response">Start the task first. When the controlled browser tab is ready, tutorial recording controls will appear here.</div>` : ""}
-        ${recording?.status === "complete" ? `<div class="response">Tutorial saved to Downloads: ${esc(recording.filename || "tutorial.webm")}</div>` : ""}
-        ${recording?.status === "error" ? `<div class="error">Recording: ${esc(recording.error || "failed")}</div>` : ""}
         ${agent?.lastBrowserObservation?.url ? `<div class="response">Browser: ${esc(agent.lastBrowserObservation.url)}</div>` : ""}
         ${agent?.error ? `<div class="error">${esc(agent.error)}</div>` : ""}
         ${responsePreview ? `<div class="response">${esc(responsePreview)}</div>` : ""}
@@ -243,14 +234,6 @@ taskList.addEventListener("click", async (event) => {
         break;
       case "open-browser":
         await send({ type: MESSAGE_TYPES.OPEN_BROWSER_TAB, taskId });
-        break;
-      case "record-start":
-        await send({ type: MESSAGE_TYPES.START_TUTORIAL_RECORDING, taskId });
-        flash("Tutorial recording started.");
-        break;
-      case "record-stop":
-        await send({ type: MESSAGE_TYPES.STOP_TUTORIAL_RECORDING, taskId });
-        flash("Finishing tutorial recording...");
         break;
       case "pause":
         await send({ type: MESSAGE_TYPES.PAUSE_TASK, taskId });
