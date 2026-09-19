@@ -88,10 +88,27 @@ async function tabExists(tabId) {
   }
 }
 
+async function sendChatMessage(tabId, message) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, message);
+  } catch (firstError) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["src/content/chatgpt-content.js"]
+      });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return await chrome.tabs.sendMessage(tabId, message);
+    } catch {
+      throw firstError;
+    }
+  }
+}
+
 async function getChatState(agent) {
   if (!agent?.tabId || !(await tabExists(agent.tabId))) return null;
   try {
-    const response = await chrome.tabs.sendMessage(agent.tabId, {
+    const response = await sendChatMessage(agent.tabId, {
       type: MESSAGE_TYPES.GET_CHAT_STATE
     });
     return response?.ok ? response : null;
@@ -299,7 +316,7 @@ async function injectPrompt(agent, prompt) {
 
   await patchAgent(agent.id, { state: AGENT_STATES.INJECTING_PROMPT, error: "" });
   try {
-    const response = await chrome.tabs.sendMessage(agent.tabId, {
+    const response = await sendChatMessage(agent.tabId, {
       type: MESSAGE_TYPES.INJECT_PROMPT,
       prompt
     });
