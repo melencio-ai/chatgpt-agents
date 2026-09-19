@@ -121,3 +121,37 @@ test("browser prompt teaches screenshot-first coordinate actions", () => {
   assert.match(prompt, /xPct/);
   assert.match(prompt, /primary description of the current browser environment/i);
 });
+
+
+test("parses directive lines with indentation and list markers", () => {
+  assert.deepEqual(
+    parseAgentDirective("Done.\n  AGENT_STATUS: CONTINUE\n - NEXT_ACTION: Recheck Railway staging\n"),
+    {
+      status: "CONTINUE",
+      nextAction: "Recheck Railway staging",
+      browserAction: undefined
+    }
+  );
+});
+
+test("uses the last machine-readable directive block in a response", () => {
+  assert.deepEqual(
+    parseAgentDirective(
+      "Example:\nAGENT_STATUS: BLOCKED\nNEXT_ACTION: Example only\n\nFinal:\nAGENT_STATUS: CONTINUE\nNEXT_ACTION: Continue deployment check\n"
+    ),
+    {
+      status: "CONTINUE",
+      nextAction: "Continue deployment check",
+      browserAction: undefined
+    }
+  );
+});
+
+test("continuation prompt carries the latest next action", () => {
+  const prompt = buildContinuationPrompt(
+    { ...task, next_action: "Recheck the Railway staging deployment" },
+    4
+  );
+  assert.match(prompt, /Next action from the previous response:/);
+  assert.match(prompt, /Recheck the Railway staging deployment/);
+});
