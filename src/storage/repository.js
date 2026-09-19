@@ -13,7 +13,6 @@ export function createEmptyState() {
     tasks: {},
     agents: {},
     runs: {},
-    recordings: {},
     settings: { ...DEFAULT_SETTINGS },
     updatedAt: nowIso()
   };
@@ -28,7 +27,6 @@ function mergeDefaults(value) {
     tasks: value.tasks && typeof value.tasks === "object" ? value.tasks : {},
     agents: value.agents && typeof value.agents === "object" ? value.agents : {},
     runs: value.runs && typeof value.runs === "object" ? value.runs : {},
-    recordings: value.recordings && typeof value.recordings === "object" ? value.recordings : {},
     settings: {
       ...DEFAULT_SETTINGS,
       ...(value.settings || {}),
