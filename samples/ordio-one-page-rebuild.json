@@ -1,0 +1,215 @@
+{
+  "id": "ordio-one-page-rebuild",
+  "title": "Rebuild Ordio as a premium one-page static website",
+  "project": "Ordio Website Redesign",
+  "owner": "Melencio",
+  "priority": "P2 - High",
+  "status": "Now",
+  "next_action": "Audit the complete existing Ordio website and produce a verified business, content and brand inventory before writing or designing the new page.",
+  "source_website": "https://ordio.au/",
+  "goal": "Create a modern, premium, conversion-focused one-page static website for Ordio with a complete visual identity, typography system and responsive section-by-section implementation.",
+  "instructions": [
+    "Use https://ordio.au/ and its existing internal pages as the primary source of truth.",
+    "Inspect Home, What We Do, Who We Work With, FAQs and Demo before designing.",
+    "Do not copy the existing page layout.",
+    "Do not fabricate services, client names, testimonials, statistics, certifications, locations or claims.",
+    "Preserve useful Ordio brand equity such as its logo, company name, established positioning and recognizable brand cues.",
+    "Modernize the visual identity substantially.",
+    "Build one section at a time.",
+    "Finish and visually review each section before moving to the next section.",
+    "After each major build stage, capture a screenshot and inspect the actual rendered page.",
+    "Use screenshot evidence to correct typography, spacing, hierarchy and responsiveness.",
+    "Maintain one design system across the whole site.",
+    "Use semantic HTML and lightweight CSS and JavaScript.",
+    "The final deliverable is one static responsive landing page.",
+    "Prioritize fast loading, clarity and conversion.",
+    "Primary CTA should remain centred around requesting a free demo unless evidence from the existing site supports a better equivalent.",
+    "Use Australian Ordio details for the Australian website.",
+    "Do not accidentally carry New Zealand contact details into the Australian landing page.",
+    "Use verified Australian contact details from the current website.",
+    "Do not begin final page construction until the brand direction and typography system are defined.",
+    "Treat the redesign as a premium audio and caller-experience brand, not a generic telecom or agency template.",
+    "Use audio-inspired visual language where appropriate, such as waveform motifs, sound bars, timeline elements, play controls and subtle motion.",
+    "Prefer oversized editorial typography, strong contrast, generous whitespace and restrained animation.",
+    "Use sophisticated brand-appropriate imagery rather than generic telecom stock imagery.",
+    "Make voice demos a major visual and conversion section rather than a buried secondary feature.",
+    "Use the hero direction: Make every caller interaction sound like your brand.",
+    "Use supporting copy direction: Professional voice, music and managed caller experiences—from IVR and on-hold messaging to voicemail and voiceovers.",
+    "Use Request a Free Demo as the primary CTA.",
+    "Use Hear Our Voices as the secondary CTA where appropriate."
+  ],
+  "reference_facts": {
+    "business": "Ordio",
+    "website": "https://ordio.au/",
+    "positioning": "Custom voice, music and caller-experience solutions for businesses.",
+    "primary_cta": "Request a free demo",
+    "secondary_cta": "Hear Our Voices",
+    "contact": {
+      "email": "info@ordio.au",
+      "phone": "1300 067 346",
+      "address": "10 Prior Avenue, Seaton, South Australia, 5023"
+    },
+    "verified_metrics": [
+      "500+ active clients",
+      "10+ years of experience"
+    ],
+    "verified_services": [
+      "IVR Menus",
+      "Call Waiting & On-Hold Messages",
+      "Out of Hours Messages",
+      "Voicemail Greetings",
+      "Call Flow Analysis",
+      "Voiceovers for Videos"
+    ],
+    "verified_capabilities": [
+      "Professional voice talent",
+      "Script writing",
+      "On-brand music selection",
+      "Managed content updates",
+      "Technical phone-system audit",
+      "Call flow architecture and design",
+      "Ongoing subscription-based content updates"
+    ]
+  },
+  "brand_direction": {
+    "positioning": "Premium audio and caller-experience studio for businesses.",
+    "visual_language": [
+      "Waveform and audio-frequency motifs",
+      "Oversized editorial typography",
+      "Strong contrast",
+      "Generous whitespace",
+      "Circular play controls",
+      "Voice-demo cards",
+      "Sound-wave section transitions",
+      "Sophisticated photography",
+      "Restrained motion"
+    ],
+    "hero_headline_direction": "Make every caller interaction sound like your brand.",
+    "hero_supporting_copy_direction": "Professional voice, music and managed caller experiences—from IVR and on-hold messaging to voicemail and voiceovers."
+  },
+  "recommended_page_structure": [
+    "Header",
+    "Hero",
+    "Trusted Brand Logo Strip",
+    "Caller Experience Problem / Opportunity",
+    "Services",
+    "Why Ordio",
+    "Voice Demo",
+    "Creative Process",
+    "Customer Results / Testimonials",
+    "About Ordio",
+    "FAQ",
+    "Final Demo CTA",
+    "Footer"
+  ],
+  "subtasks": [
+    {
+      "title": "Stage 1 — Audit the complete existing Ordio website",
+      "completed": false
+    },
+    {
+      "title": "Stage 2 — Create verified business and content inventory",
+      "completed": false
+    },
+    {
+      "title": "Stage 3 — Extract existing logo, colours, imagery, visual motifs and brand cues",
+      "completed": false
+    },
+    {
+      "title": "Stage 4 — Identify existing website weaknesses and content duplication",
+      "completed": false
+    },
+    {
+      "title": "Stage 5 — Define the new Ordio brand direction",
+      "completed": false
+    },
+    {
+      "title": "Stage 6 — Define complete typography system and font hierarchy",
+      "completed": false
+    },
+    {
+      "title": "Stage 7 — Define colour, spacing, radius, button, card and icon design tokens",
+      "completed": false
+    },
+    {
+      "title": "Stage 8 — Define final one-page content architecture and anchor navigation",
+      "completed": false
+    },
+    {
+      "title": "Stage 9 — Build responsive header and navigation",
+      "completed": false
+    },
+    {
+      "title": "Stage 10 — Build and visually review the hero section",
+      "completed": false
+    },
+    {
+      "title": "Stage 11 — Build trusted-brand logo strip",
+      "completed": false
+    },
+    {
+      "title": "Stage 12 — Build caller-experience problem and opportunity section",
+      "completed": false
+    },
+    {
+      "title": "Stage 13 — Build six-service Ordio solutions section",
+      "completed": false
+    },
+    {
+      "title": "Stage 14 — Build Why Ordio differentiators section",
+      "completed": false
+    },
+    {
+      "title": "Stage 15 — Build voice-demo / hear-the-difference section",
+      "completed": false
+    },
+    {
+      "title": "Stage 16 — Build five-stage creative process section",
+      "completed": false
+    },
+    {
+      "title": "Stage 17 — Build verified testimonial and customer-results section",
+      "completed": false
+    },
+    {
+      "title": "Stage 18 — Build compact About Ordio section",
+      "completed": false
+    },
+    {
+      "title": "Stage 19 — Build condensed FAQ section from verified current FAQs",
+      "completed": false
+    },
+    {
+      "title": "Stage 20 — Build final Request a Free Demo conversion section",
+      "completed": false
+    },
+    {
+      "title": "Stage 21 — Build Australian contact and footer section",
+      "completed": false
+    },
+    {
+      "title": "Stage 22 — Perform full desktop visual QA using screenshots",
+      "completed": false
+    },
+    {
+      "title": "Stage 23 — Perform tablet responsive QA",
+      "completed": false
+    },
+    {
+      "title": "Stage 24 — Perform mobile responsive QA",
+      "completed": false
+    },
+    {
+      "title": "Stage 25 — Normalize typography, spacing, buttons, cards and visual rhythm",
+      "completed": false
+    },
+    {
+      "title": "Stage 26 — Check accessibility, links, contact details and CTA destinations",
+      "completed": false
+    },
+    {
+      "title": "Stage 27 — Remove placeholders and complete final production review",
+      "completed": false
+    }
+  ]
+}
