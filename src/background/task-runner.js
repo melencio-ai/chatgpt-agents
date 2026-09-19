@@ -36,6 +36,16 @@ const ACTIVE_STATES = new Set([
   AGENT_STATES.NEEDS_USER
 ]);
 
+const RECOVERABLE_CHAT_STATES = new Set([
+  AGENT_STATES.INJECTING_PROMPT,
+  AGENT_STATES.SUBMITTED,
+  AGENT_STATES.GENERATING
+]);
+
+function responseTail(text) {
+  return String(text || "").trim().slice(-16000);
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -76,6 +86,44 @@ async function tabExists(tabId) {
   } catch {
     return false;
   }
+}
+
+async function getChatState(agent) {
+  if (!agent?.tabId || !(await tabExists(agent.tabId))) return null;
+  try {
+    const response = await chrome.tabs.sendMessage(agent.tabId, {
+      type: MESSAGE_TYPES.GET_CHAT_STATE
+    });
+    return response?.ok ? response : null;
+  } catch {
+    return null;
+  }
+}
+
+async function reconcileAgentChatState(agent, pageUrl = "") {
+  const chatState = await getChatState(agent);
+  if (!chatState) return false;
+
+  const conversationUrl = chatState.url || pageUrl || agent.conversationUrl;
+  if (chatState.generating) {
+    if (agent.state !== AGENT_STATES.GENERATING) {
+      await patchAgent(agent.id, {
+        state: AGENT_STATES.GENERATING,
+        conversationUrl
+      });
+    }
+    return true;
+  }
+
+  const latest = String(chatState.latestAssistantText || "").trim();
+  if (!latest) return false;
+
+  const directive = parseAgentDirective(latest);
+  if (!directive.status) return false;
+  if (responseTail(latest) === responseTail(agent.lastResponse)) return false;
+
+  await handleResponse(agent.tabId, latest, conversationUrl);
+  return true;
 }
 
 async function waitForTabSettled(tabId, timeoutMs = 12000) {
@@ -325,6 +373,11 @@ export async function handlePageReady(tabId, pageUrl) {
   await patchAgent(agent.id, { conversationUrl });
   await patchTask(agent.taskId, { chatgpt_url: conversationUrl });
 
+  if (RECOVERABLE_CHAT_STATES.has(agent.state)) {
+    await reconcileAgentChatState({ ...agent, conversationUrl }, conversationUrl);
+    return;
+  }
+
   if (![AGENT_STATES.CREATING_TAB, AGENT_STATES.WAITING_FOR_CHATGPT].includes(agent.state)) return;
 
   await patchAgent(agent.id, { state: AGENT_STATES.READY });
@@ -467,14 +520,21 @@ export async function handleResponse(tabId, assistantText, pageUrl) {
   const agent = await getAgentByTabId(tabId);
   if (!agent || agent.state === AGENT_STATES.PAUSED || TERMINAL_AGENT_STATES.has(agent.state)) return;
 
+  const response = responseTail(assistantText);
+  if (!response || response === responseTail(agent.lastResponse)) return;
+
   const directive = parseAgentDirective(assistantText);
   await patchAgent(agent.id, {
     state: AGENT_STATES.EVALUATING,
-    lastResponse: String(assistantText || "").slice(-16000),
+    lastResponse: response,
     lastDirective: directive,
     conversationUrl: pageUrl || agent.conversationUrl
   });
-  await patchTask(agent.taskId, { chatgpt_url: pageUrl || agent.conversationUrl });
+
+  await patchTask(agent.taskId, {
+    chatgpt_url: pageUrl || agent.conversationUrl,
+    ...(directive.nextAction ? { next_action: directive.nextAction } : {})
+  });
 
   const task = await getTask(agent.taskId);
 
@@ -533,7 +593,6 @@ export async function handleResponse(tabId, assistantText, pageUrl) {
   await patchAgent(agent.id, {
     state: directive.status ? AGENT_STATES.RESPONSE_READY : AGENT_STATES.NEEDS_USER
   });
-  if (directive.nextAction) await patchTask(agent.taskId, { next_action: directive.nextAction });
 }
 
 export async function continueTask(taskId) {
