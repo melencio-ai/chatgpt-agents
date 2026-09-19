@@ -67,7 +67,6 @@ test("parses tutorial task configuration", () => {
     tutorial: {
       enabled: true,
       title: "How to import contacts",
-      recordTabAudio: false,
       pace: "slow"
     },
     audit_mode: "tutorial read-only",
@@ -76,6 +75,5 @@ test("parses tutorial task configuration", () => {
   assert.equal(task.task_mode, "tutorial");
   assert.equal(task.tutorial.enabled, true);
   assert.equal(task.tutorial.title, "How to import contacts");
-  assert.equal(task.tutorial.recordTabAudio, false);
   assert.equal(task.tutorial.pace, "slow");
 });
