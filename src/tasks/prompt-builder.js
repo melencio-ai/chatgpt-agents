@@ -129,9 +129,13 @@ ${renderFooter(task)}`;
 }
 
 export function buildContinuationPrompt(task, continuationNumber = 1) {
+  const next = task.next_action || incompleteSubtasks(task)[0]?.title || "Proceed with the next incomplete item.";
   return `Continue working on: ${task.title}.
 
 This is continuation ${continuationNumber}. Review what has already been completed in this conversation, then proceed with the next incomplete item. Do not repeat completed work. If execution is possible, do it now.${renderAuditContext(task)}
+
+Next action from the previous response:
+${next}
 
 ${renderFooter(task)}`;
 }
