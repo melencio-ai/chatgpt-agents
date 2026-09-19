@@ -75,7 +75,6 @@ function normalizeTutorial(raw, projectDefaults) {
   }
 
   return {
-    ...value,
     enabled: value.enabled !== false,
     title: String(value.title || raw.title || "Tutorial").trim(),
     pace: String(value.pace || "guided").trim().toLowerCase()
