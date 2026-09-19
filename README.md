@@ -2,7 +2,7 @@
 
 A Manifest V3 Chrome/Edge extension that runs one ChatGPT browser agent at a time. The agent can operate a target web app through Chrome DevTools Protocol, inspect the current page, receive screenshots, choose the next safe browser action, and continue until its task is complete.
 
-## V0.5 — autonomous browser agent + tutorial recorder
+## V0.6 — autonomous browser agent + guided tutorial navigation
 
 The extension now deliberately runs **one active agent at a time**.
 
@@ -37,25 +37,23 @@ The user only needs to intervene for a true blocker such as login/MFA, CAPTCHA, 
 
 
 
-## Tutorial recorder
+## Tutorial navigation
 
-Tutorial tasks reuse the safe browser operator but add recording-oriented pacing and captions. The extension records only the controlled browser tab, not the full desktop.
+Tutorial tasks reuse the safe browser operator but add slower pacing, visible Guide mouse movement, captions, screenshot awareness, and safe dummy-data helpers. The extension does **not** record video.
 
 Use:
 
 `samples/highlevel-import-contacts-tutorial.json`
 
-Workflow:
+Recommended workflow:
 
-1. Import the tutorial JSON and click **Start**.
-2. The agent prepares the target browser tab and pauses before the first tutorial action.
-3. Click **Record Tutorial**.
-4. The extension records the controlled tab through the existing Chrome debugger session while the agent moves the visible **Guide** pointer, shows action captions, and navigates the walkthrough.
-5. Tutorial mode can attach an in-memory dummy CSV with `upload_sample_csv`; it never needs real customer data.
-6. The agent stays read-only and should stop before a final submit/import/save action.
-7. When the agent reaches `COMPLETE`, recording stops automatically and a `.webm` file is saved under `Downloads/ChatGPT Agents/`.
-
-Tutorial recordings are currently video-only. Tab audio is not captured by the CDP screencast recorder.
+1. Start OBS and choose your browser/window capture source.
+2. Import the tutorial JSON.
+3. Click **Start** in ChatGPT Agents.
+4. The agent opens the configured app location and begins the walkthrough immediately.
+5. The Guide pointer moves visibly, captions describe actions, and the agent pauses on important screens.
+6. Tutorial mode can attach an in-memory dummy CSV with `upload_sample_csv`; it never needs real customer data.
+7. The agent stays read-only and stops before a final submit/import/save action.
 
 Tutorial task JSON supports:
 
@@ -65,7 +63,6 @@ Tutorial task JSON supports:
   "tutorial": {
     "enabled": true,
     "title": "How to Import Contacts in HighLevel",
-    "recordTabAudio": true,
     "pace": "guided"
   },
   "audit_mode": "tutorial read-only",
@@ -75,9 +72,7 @@ Tutorial task JSON supports:
 }
 ```
 
-Tutorial video recording uses Chrome DevTools Protocol `Page.startScreencast` frames and an offscreen canvas/`MediaRecorder`. It does not require `activeTab` or `tabCapture` permission.
-
-
+OBS handles recording quality, audio, canvas size, overlays, and final output. The extension only handles browser navigation and tutorial guidance.
 
 ## Screenshot-aware browser control
 
@@ -171,13 +166,11 @@ NEXT_ACTION: Audit complete
 
 - `src/background/task-runner.js` — one-agent queue and autonomous loop
 - `src/background/browser-operator.js` — read-only CDP browser controller + tutorial captions/pacing
-- `src/background/tutorial-recorder.js` — tab capture lifecycle and local download
-- `src/offscreen/recorder.js` — MediaRecorder running in an offscreen document
 - `src/tasks/prompt-builder.js` — agent/browser command contract
 - `src/content/chatgpt-content.js` — ChatGPT prompt/image adapter
 - `src/storage/repository.js` — durable state and v0.3 settings migration
 - `samples/dynk-full-audit-autonomous.json` — recommended Dynk task
-- `samples/highlevel-import-contacts-tutorial.json` — tutorial recording example
+- `samples/highlevel-import-contacts-tutorial.json` — guided HighLevel tutorial example
 
 ## Development
 
