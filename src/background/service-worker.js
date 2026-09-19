@@ -25,13 +25,52 @@ import {
   pumpQueue
 } from "./task-runner.js";
 
+async function ensureChatContentScript(tabId) {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, {
+      type: MESSAGE_TYPES.GET_CHAT_STATE
+    });
+    if (response?.ok) return true;
+  } catch {
+    // The tab may still have a content script from a previous extension instance.
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["src/content/chatgpt-content.js"]
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function rehydrateChatTabs() {
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: "https://chatgpt.com/*" });
+  } catch {
+    return;
+  }
+
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    if (!(await ensureChatContentScript(tab.id))) continue;
+    await handlePageReady(tab.id, tab.url || "");
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   await initializeState();
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  await rehydrateChatTabs();
+  await pumpQueue();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await initializeState();
+  await rehydrateChatTabs();
   await pumpQueue();
 });
 
@@ -44,6 +83,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       switch (message?.type) {
         case MESSAGE_TYPES.GET_STATE:
+          await rehydrateChatTabs();
           sendResponse({ ok: true, state: await getState() });
           break;
         case MESSAGE_TYPES.IMPORT_TASK_PAYLOAD: {
