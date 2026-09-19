@@ -18,3 +18,19 @@ test("task runner reconciles reloaded active chats and deduplicates responses", 
   assert.match(source, /responseTail\(latest\) === responseTail\(agent\.lastResponse\)/);
   assert.match(source, /next_action:\s*directive\.nextAction/);
 });
+
+
+test("service worker rehydrates ChatGPT tabs after extension reload", async () => {
+  const source = await readFile(new URL("../src/background/service-worker.js", import.meta.url), "utf8");
+  assert.match(source, /rehydrateChatTabs/);
+  assert.match(source, /ensureChatContentScript/);
+  assert.match(source, /chrome\.scripting\.executeScript/);
+  assert.match(source, /https:\/\/chatgpt\.com\/\*/);
+});
+
+test("prompt injection retries by reinjecting the content script when missing", async () => {
+  const source = await readFile(new URL("../src/background/task-runner.js", import.meta.url), "utf8");
+  assert.match(source, /sendChatMessage/);
+  assert.match(source, /files:\s*\["src\/content\/chatgpt-content\.js"\]/);
+  assert.match(source, /type:\s*MESSAGE_TYPES\.INJECT_PROMPT/);
+});
