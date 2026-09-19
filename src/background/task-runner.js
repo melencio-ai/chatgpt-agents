@@ -94,6 +94,19 @@ async function waitForTabSettled(tabId, timeoutMs = 12000) {
   }
 }
 
+async function focusBrowserTab(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    await chrome.tabs.update(tabId, { active: true });
+    if (tab.windowId !== undefined) {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
+  } catch {
+    // The browser tab may have closed between steps.
+  }
+}
+
+
 async function createRun(taskId, mode) {
   const agentId = makeId("agent");
   const runId = makeId("run");
@@ -286,6 +299,7 @@ async function startAutonomousAudit(agent, task) {
   const auditTab = await ensureAuditTab(task.audit_target.url, agent.auditTabId);
   await patchAgent(agent.id, { auditTabId: auditTab.id, state: AGENT_STATES.BROWSER_ACTING });
 
+  if (isTutorialTask(task)) await focusBrowserTab(auditTab.id);
   await waitForTabSettled(auditTab.id);
   const state = await getState();
   const tutorialMode = isTutorialTask(task);
@@ -398,6 +412,7 @@ async function continueAutonomousAudit(agent, task, directive) {
   try {
     auditTab = await ensureAuditTab(task.audit_target.url, current.auditTabId);
     await patchAgent(agent.id, { auditTabId: auditTab.id });
+    if (isTutorialTask(task)) await focusBrowserTab(auditTab.id);
 
     actionResult = await executeBrowserAction(
       auditTab.id,
