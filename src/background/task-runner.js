@@ -177,13 +177,14 @@ async function waitForTabSettled(tabId, timeoutMs = 12000) {
       const tab = await chrome.tabs.get(tabId);
       if (tab.status === "complete") {
         await new Promise((resolve) => setTimeout(resolve, 450));
-        return;
+        return true;
       }
     } catch {
-      return;
+      return false;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
+  return false;
 }
 
 async function focusBrowserTab(tabId) {
@@ -256,7 +257,16 @@ async function launchAgent(agentId) {
   });
 
   await focusBrowserTab(tab.id);
-  await waitForTabSettled(tab.id, 20000);
+  const loaded = await waitForTabSettled(tab.id, 20000);
+
+  if (!loaded) {
+    await patchAgent(agentId, {
+      state: AGENT_STATES.ERROR,
+      error: "ChatGPT tab did not finish loading within 20 seconds. Keep the opened ChatGPT tab active, then restart the task."
+    });
+    await pumpQueue();
+    return;
+  }
 
   try {
     const settledTab = await chrome.tabs.get(tab.id);
