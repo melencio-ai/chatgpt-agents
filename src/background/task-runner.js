@@ -248,12 +248,26 @@ async function launchAgent(agentId) {
     ? task.chatgpt_url
     : "https://chatgpt.com/";
 
-  const tab = await chrome.tabs.create({ url: targetUrl, active: false });
+  const tab = await chrome.tabs.create({ url: targetUrl, active: true });
   await patchAgent(agentId, {
     tabId: tab.id,
     conversationUrl: tab.url || targetUrl,
     state: AGENT_STATES.WAITING_FOR_CHATGPT
   });
+
+  await focusBrowserTab(tab.id);
+  await waitForTabSettled(tab.id, 20000);
+
+  try {
+    const settledTab = await chrome.tabs.get(tab.id);
+    await handlePageReady(tab.id, settledTab.url || targetUrl);
+  } catch (error) {
+    await patchAgent(agentId, {
+      state: AGENT_STATES.ERROR,
+      error: `ChatGPT tab did not finish loading: ${String(error?.message || error)}`
+    });
+    await pumpQueue();
+  }
 }
 
 export async function pumpQueue() {
