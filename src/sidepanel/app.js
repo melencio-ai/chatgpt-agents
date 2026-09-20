@@ -303,7 +303,7 @@ async function persistSettings() {
         visualMouse: visualMouse.checked,
         autoDetectTaskJson: autoDetectTaskJson.checked,
         autoImportDetectedTasks: autoImportTaskJson.checked,
-        autoStartDetectedTasks: autoStartTaskJson.checked
+        autoStartDetectedTasks: autoDetectTaskJson.checked && autoImportTaskJson.checked && autoStartTaskJson.checked
       }
     });
     state = response.state;
