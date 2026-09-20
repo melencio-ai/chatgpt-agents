@@ -123,6 +123,22 @@ Then:
 
 The old three-agent audit sample remains in the repository for reference, but the recommended workflow is now the single autonomous task.
 
+## Automatic task JSON detection
+
+The extension can detect task JSON directly in completed ChatGPT assistant responses, so you no longer need to save every generated task bundle to a file before importing it.
+
+Default behavior:
+
+- **Detect JSON: on**
+- **Auto import: on**
+- **Auto start: off**
+
+Detected JSON is validated against the existing task schema before import. Generic JSON snippets are ignored. Each payload receives a stable fingerprint so the same generated bundle is not repeatedly imported after DOM mutations, refreshes, or extension reloads.
+
+Automatic imports are conservative: if a detected task ID already exists, the extension leaves the existing task untouched. This protects completed/crossed-out subtasks from being reset by a repeated or regenerated task bundle.
+
+The side panel shows the most recent detection result and exposes compact toggles for detection, auto import, and auto start.
+
 ## Local install
 
 1. Open `edge://extensions` or `chrome://extensions`.
