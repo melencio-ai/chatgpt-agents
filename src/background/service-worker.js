@@ -45,7 +45,20 @@ async function ensureChatContentScript(tabId) {
       target: { tabId },
       files: ["src/content/chatgpt-content.js"]
     });
-    return true;
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 200 : 250));
+      try {
+        const response = await chrome.tabs.sendMessage(tabId, {
+          type: MESSAGE_TYPES.GET_CHAT_STATE
+        });
+        if (response?.ok) return true;
+      } catch {
+        // Give the reinjected content script time to initialize.
+      }
+    }
+
+    return false;
   } catch {
     return false;
   }
