@@ -36,6 +36,7 @@ function mergeDefaults(value) {
   return {
     ...base,
     ...rest,
+    version: base.version,
     tasks,
     agents: value.agents && typeof value.agents === "object" ? value.agents : {},
     runs: value.runs && typeof value.runs === "object" ? value.runs : {},
@@ -97,7 +98,6 @@ export async function upsertTasks(tasks) {
 
 export async function recordDetectedTaskPayload({
   fingerprint,
-  payload,
   tasks,
   sourceUrl = "",
   autoImport = true
@@ -142,7 +142,6 @@ export async function recordDetectedTaskPayload({
 
     state.detectedTaskPayloads[fingerprint] = {
       fingerprint,
-      payload,
       sourceUrl,
       taskIds: tasks.map((task) => task.id),
       taskCount: tasks.length,
@@ -151,6 +150,12 @@ export async function recordDetectedTaskPayload({
       importedTaskIds,
       skippedExisting
     };
+
+    const detectionEntries = Object.entries(state.detectedTaskPayloads)
+      .sort(([, left], [, right]) => String(right.detectedAt || "").localeCompare(String(left.detectedAt || "")));
+    for (const [oldFingerprint] of detectionEntries.slice(200)) {
+      delete state.detectedTaskPayloads[oldFingerprint];
+    }
 
     state.lastTaskDetection = {
       fingerprint,
