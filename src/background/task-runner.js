@@ -89,20 +89,47 @@ async function tabExists(tabId) {
 }
 
 async function sendChatMessage(tabId, message) {
+  let firstError = null;
+
   try {
     return await chrome.tabs.sendMessage(tabId, message);
-  } catch (firstError) {
+  } catch (error) {
+    firstError = error;
+  }
+
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch {
+    throw new Error("ChatGPT tab is no longer available.");
+  }
+
+  if (!String(tab.url || "").startsWith("https://chatgpt.com/")) {
+    throw new Error(`ChatGPT receiver is unavailable because the tab is not on chatgpt.com: ${tab.url || "unknown URL"}`);
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["src/content/chatgpt-content.js"]
+    });
+  } catch (error) {
+    throw new Error(`Could not reattach the ChatGPT content script: ${String(error?.message || error)}`);
+  }
+
+  let lastError = firstError;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 200 : 250));
     try {
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        files: ["src/content/chatgpt-content.js"]
-      });
-      await new Promise((resolve) => setTimeout(resolve, 150));
       return await chrome.tabs.sendMessage(tabId, message);
-    } catch {
-      throw firstError;
+    } catch (error) {
+      lastError = error;
     }
   }
+
+  throw new Error(
+    `ChatGPT content script did not become available after reinjection: ${String(lastError?.message || lastError || "unknown error")}`
+  );
 }
 
 async function getChatState(agent) {
@@ -331,7 +358,7 @@ async function injectPrompt(agent, prompt) {
 async function attachObservation(agent, task, observation, stepNumber, actionResult = null, includeTaskBrief = false) {
   if (observation?.screenshot) {
     const filename = `audit-${task.id}-step-${stepNumber}.jpg`;
-    const response = await chrome.tabs.sendMessage(agent.tabId, {
+    const response = await sendChatMessage(agent.tabId, {
       type: MESSAGE_TYPES.ATTACH_IMAGE,
       base64: observation.screenshot,
       mimeType: "image/jpeg",
@@ -642,7 +669,7 @@ export async function pauseTask(taskId) {
   const agent = await getAgentByTaskId(taskId);
   if (!agent) return null;
   if (agent.tabId && await tabExists(agent.tabId)) {
-    chrome.tabs.sendMessage(agent.tabId, { type: MESSAGE_TYPES.STOP_GENERATION }).catch(() => {});
+    sendChatMessage(agent.tabId, { type: MESSAGE_TYPES.STOP_GENERATION }).catch(() => {});
   }
   await patchAgent(agent.id, { state: AGENT_STATES.PAUSED });
   await pumpQueue();
@@ -653,7 +680,7 @@ export async function cancelTask(taskId) {
   const agent = await getAgentByTaskId(taskId);
   if (!agent) return null;
   if (agent.tabId && await tabExists(agent.tabId)) {
-    chrome.tabs.sendMessage(agent.tabId, { type: MESSAGE_TYPES.STOP_GENERATION }).catch(() => {});
+    sendChatMessage(agent.tabId, { type: MESSAGE_TYPES.STOP_GENERATION }).catch(() => {});
   }
   await updateState((state) => {
     const current = state.agents[agent.id];
@@ -675,7 +702,7 @@ export async function deleteTask(taskId) {
   for (const agent of taskAgents) {
     if (agent.tabId && await tabExists(agent.tabId)) {
       try {
-        await chrome.tabs.sendMessage(agent.tabId, { type: MESSAGE_TYPES.STOP_GENERATION });
+        await sendChatMessage(agent.tabId, { type: MESSAGE_TYPES.STOP_GENERATION });
       } catch {
         // The content script may no longer be available.
       }
