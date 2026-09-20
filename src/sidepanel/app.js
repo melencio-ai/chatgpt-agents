@@ -163,7 +163,7 @@ function renderTask(task) {
           ${agent?.browserStepCount ? `<span>step ${agent.browserStepCount}</span>` : ""}
         </div>
         ${task.next_action ? `<p class="next-action"><strong>Goal:</strong> ${esc(task.next_action)}</p>` : ""}
-        ${(task.subtasks || []).length ? `<ul class="subtasks">${task.subtasks.map((item) => `<li class="${item.completed ? "done" : ""}"><span>${item.completed ? "✓" : "○"}</span><span>${esc(item.title)}</span></li>`).join("")}</ul>` : ""}
+        ${(task.subtasks || []).length ? `<ul class="subtasks">${task.subtasks.map((item) => `<li class="${item.completed ? "done" : ""}"><span class="subtask-state" aria-hidden="true">${item.completed ? "✓" : "○"}</span><span class="subtask-title">${esc(item.title)}</span></li>`).join("")}</ul>` : ""}
         ${renderActions(task, agent)}
         ${agent?.lastBrowserObservation?.url ? `<div class="response">Browser: ${esc(agent.lastBrowserObservation.url)}</div>` : ""}
         ${agent?.error ? `<div class="error">${esc(agent.error)}</div>` : ""}

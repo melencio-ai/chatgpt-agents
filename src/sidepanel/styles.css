@@ -55,7 +55,14 @@ h1 { margin: 0; font-size: 15px; letter-spacing: -.01em; }
 .next-action { margin: 0 0 8px; font-size: 11px; line-height: 1.45; }
 .subtasks { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 .subtasks li { display: flex; gap: 6px; color: var(--muted); font-size: 10px; line-height: 1.35; }
-.subtasks li.done { text-decoration: line-through; opacity: .7; }
+.subtask-state { flex: none; width: 12px; text-align: center; }
+.subtask-title { min-width: 0; }
+.subtasks li.done { opacity: .7; }
+.subtasks li.done .subtask-title {
+  text-decoration-line: line-through;
+  text-decoration-thickness: 1.5px;
+  text-decoration-skip-ink: none;
+}
 .actions { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 9px; }
 .actions .button { padding: 5px 7px; font-size: 10px; }
 .error { margin-top: 8px; color: var(--danger); font-size: 10px; line-height: 1.4; }
