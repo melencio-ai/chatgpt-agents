@@ -35,9 +35,29 @@ function flash(message, persistent = false) {
   }
 }
 
+function isDisconnectedRuntimeError(error) {
+  const message = String(error?.message || error || "");
+  return /receiving end does not exist|could not establish connection|extension context invalidated|message port closed/i.test(message);
+}
+
 async function send(message) {
-  const response = await chrome.runtime.sendMessage(message);
-  if (!response?.ok) throw new Error(response?.error || "Extension request failed.");
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage(message);
+  } catch (error) {
+    if (isDisconnectedRuntimeError(error)) {
+      throw new Error("The extension was reloaded and this side panel is stale. Close and reopen ChatGPT Agents, then retry.");
+    }
+    throw error;
+  }
+
+  if (!response?.ok) {
+    const error = new Error(response?.error || "Extension request failed.");
+    if (isDisconnectedRuntimeError(error)) {
+      throw new Error("The ChatGPT receiver was unavailable. The extension will reattach it automatically; retry this action once.");
+    }
+    throw error;
+  }
   return response;
 }
 
