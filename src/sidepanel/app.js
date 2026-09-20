@@ -8,6 +8,10 @@ const defaultMode = document.querySelector("#default-mode");
 const maxConcurrent = document.querySelector("#max-concurrent");
 const maxContinuations = document.querySelector("#max-continuations");
 const visualMouse = document.querySelector("#visual-mouse");
+const autoDetectTaskJson = document.querySelector("#auto-detect-task-json");
+const autoImportTaskJson = document.querySelector("#auto-import-task-json");
+const autoStartTaskJson = document.querySelector("#auto-start-task-json");
+const detectedTaskNotice = document.querySelector("#detected-task-notice");
 const emptyTemplate = document.querySelector("#empty-template");
 
 let state = null;
@@ -172,6 +176,34 @@ function renderTask(task) {
     </article>`;
 }
 
+function renderDetectedTaskNotice() {
+  const detection = state?.lastTaskDetection;
+  if (!detection) {
+    detectedTaskNotice.hidden = true;
+    detectedTaskNotice.textContent = "";
+    return;
+  }
+
+  const taskWord = detection.taskCount === 1 ? "task" : "tasks";
+  if (detection.importedCount > 0) {
+    detectedTaskNotice.textContent = `Auto-imported ${detection.importedCount} detected ${taskWord} from ChatGPT.`;
+  } else if (detection.skippedExisting > 0) {
+    detectedTaskNotice.textContent = `Detected ${detection.taskCount} ${taskWord}; existing task IDs were kept unchanged.`;
+  } else {
+    detectedTaskNotice.textContent = `Detected ${detection.taskCount} ${taskWord} in ChatGPT. Auto import is off.`;
+  }
+  detectedTaskNotice.hidden = false;
+}
+
+function renderTaskJsonSettings() {
+  autoDetectTaskJson.checked = state.settings?.autoDetectTaskJson !== false;
+  autoImportTaskJson.checked = state.settings?.autoImportDetectedTasks !== false;
+  autoStartTaskJson.checked = state.settings?.autoStartDetectedTasks === true;
+
+  autoImportTaskJson.disabled = !autoDetectTaskJson.checked;
+  autoStartTaskJson.disabled = !autoDetectTaskJson.checked || !autoImportTaskJson.checked;
+}
+
 function render() {
   if (!state) return;
   const tasks = Object.values(state.tasks || {}).sort((a, b) => String(b.updatedAt || b.importedAt || "").localeCompare(String(a.updatedAt || a.importedAt || "")));
@@ -182,6 +214,8 @@ function render() {
   maxConcurrent.value = 1;
   maxContinuations.value = state.settings?.maxAutoContinuations || 40;
   visualMouse.checked = state.settings?.visualMouse !== false;
+  renderTaskJsonSettings();
+  renderDetectedTaskNotice();
 
   if (!tasks.length) {
     taskList.replaceChildren(emptyTemplate.content.cloneNode(true));
@@ -266,7 +300,10 @@ async function persistSettings() {
         defaultMode: "auto",
         maxConcurrentAgents: 1,
         maxAutoContinuations: Math.max(5, Number(maxContinuations.value) || 40),
-        visualMouse: visualMouse.checked
+        visualMouse: visualMouse.checked,
+        autoDetectTaskJson: autoDetectTaskJson.checked,
+        autoImportDetectedTasks: autoImportTaskJson.checked,
+        autoStartDetectedTasks: autoStartTaskJson.checked
       }
     });
     state = response.state;
@@ -278,6 +315,9 @@ async function persistSettings() {
 
 maxContinuations.addEventListener("change", persistSettings);
 visualMouse.addEventListener("change", persistSettings);
+autoDetectTaskJson.addEventListener("change", persistSettings);
+autoImportTaskJson.addEventListener("change", persistSettings);
+autoStartTaskJson.addEventListener("change", persistSettings);
 
 document.querySelector("#pause-all").addEventListener("click", async () => {
   await send({ type: MESSAGE_TYPES.PAUSE_ALL });
