@@ -218,7 +218,7 @@
 
   function getSendButton() {
     const explicit = selectors.sendButton
-      .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
+      .flatMap((selector) => queryAll(selector))
       .find((button) => !button.disabled && isVisible(button));
     if (explicit) return explicit;
 
@@ -394,12 +394,61 @@
     return null;
   }
 
+  function readComposerText(composer) {
+    if (!composer) return "";
+    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
+      return String(composer.value || "");
+    }
+    return String(composer.innerText || composer.textContent || "");
+  }
+
   function composerHasText(composer) {
-    if (!composer) return false;
-    const value = composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement
-      ? composer.value
-      : composer.innerText || composer.textContent || "";
-    return Boolean(String(value || "").trim());
+    return Boolean(readComposerText(composer).trim());
+  }
+
+  function normalizePromptText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function composerContainsPrompt(composer, prompt) {
+    const actual = normalizePromptText(readComposerText(composer));
+    const expected = normalizePromptText(prompt);
+    if (!actual || !expected) return false;
+    const probeLength = Math.min(160, expected.length);
+    return actual.includes(expected.slice(0, probeLength));
+  }
+
+  function activeComposerHasPrompt(prompt) {
+    const expected = normalizePromptText(prompt);
+    if (!expected) return false;
+
+    const candidates = selectors.composer
+      .flatMap((selector) => queryAll(selector))
+      .filter(isComposerCandidate);
+
+    for (const candidate of candidates) {
+      if (composerContainsPrompt(candidate, expected)) return true;
+    }
+
+    const active = getComposer();
+    if (active && composerContainsPrompt(active, expected)) return true;
+
+    const form = active?.closest("form");
+    if (form) {
+      const formText = normalizePromptText(form.innerText || form.textContent || "");
+      const probeLength = Math.min(160, expected.length);
+      if (formText.includes(expected.slice(0, probeLength))) return true;
+    }
+
+    return false;
+  }
+
+  function composerReadyToSend(prompt) {
+    if (activeComposerHasPrompt(prompt)) return true;
+
+    const active = getComposer();
+    const sendButton = getSendButton();
+    return Boolean(active && composerHasText(active) && sendButton && !sendButton.disabled);
   }
 
   function pressEnterToSend(composer) {
@@ -431,26 +480,33 @@
       throw new Error(`ChatGPT composer was not found. ${describeComposerEnvironment()}`);
     }
 
+    const promptText = String(prompt || "");
     composer.focus();
-    setNativeValue(composer, String(prompt || ""));
+    setNativeValue(composer, promptText);
 
-    const populated = await waitFor(() => composerHasText(composer), 2500, 80);
+    const populated = await waitFor(() => composerReadyToSend(promptText), 5000, 100);
     if (!populated) {
-      throw new Error("ChatGPT composer did not accept the injected prompt.");
+      const currentComposer = getComposer();
+      const currentTextLength = normalizePromptText(readComposerText(currentComposer)).length;
+      const sendAvailable = Boolean(getSendButton());
+      throw new Error(
+        `ChatGPT composer did not accept the injected prompt. activeTextLength=${currentTextLength}; sendAvailable=${sendAvailable}.`
+      );
     }
 
     submittedByExtension = true;
     lastReportedAssistantText = getLatestAssistantText();
 
-    const sendButton = await waitFor(getSendButton, 3500, 100);
+    const activeComposer = getComposer() || composer;
+    const sendButton = await waitFor(getSendButton, 5000, 100);
     if (sendButton) {
       sendButton.click();
     } else {
-      pressEnterToSend(composer);
+      pressEnterToSend(activeComposer);
     }
 
     const started = await waitFor(
-      () => isGenerating() || getLatestAssistantText() !== lastReportedAssistantText || !composerHasText(composer),
+      () => isGenerating() || getLatestAssistantText() !== lastReportedAssistantText || !composerHasText(getComposer() || composer),
       4500,
       120
     );
