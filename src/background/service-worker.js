@@ -121,12 +121,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             try {
               const { tasks } = parseDetectedTaskPayload(candidate);
               const fingerprint = fingerprintTaskPayload(candidate);
+              const existingDetection = latestState.detectedTaskPayloads?.[fingerprint];
+              const autoImport = current.settings?.autoImportDetectedTasks !== false;
+
+              if (existingDetection?.importedAt || (existingDetection && !autoImport)) {
+                duplicates += 1;
+                continue;
+              }
+
               const result = await recordDetectedTaskPayload({
                 fingerprint,
                 payload: candidate,
                 tasks,
                 sourceUrl: message.url || sender.tab?.url || "",
-                autoImport: current.settings?.autoImportDetectedTasks !== false
+                autoImport
               });
 
               latestState = result.state;
