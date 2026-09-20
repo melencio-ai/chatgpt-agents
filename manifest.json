@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Agents Tab Manager",
-  "version": "0.6.3",
-  "description": "Run screenshot-aware browser agents for audits and guided tutorial navigation.",
+  "version": "0.7.0",
+  "description": "Run screenshot-aware browser agents and auto-import task JSON from ChatGPT.",
   "permissions": [
     "storage",
     "tabs",

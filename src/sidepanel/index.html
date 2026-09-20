@@ -43,13 +43,29 @@
       </label>
     </div>
 
+    <div class="task-json-settings" aria-label="Task JSON automation">
+      <label title="Detect task JSON in completed ChatGPT assistant responses">
+        <input id="auto-detect-task-json" type="checkbox" checked />
+        <span>Detect JSON</span>
+      </label>
+      <label title="Import newly detected tasks automatically without replacing existing task IDs">
+        <input id="auto-import-task-json" type="checkbox" checked />
+        <span>Auto import</span>
+      </label>
+      <label title="Start the first newly imported task automatically">
+        <input id="auto-start-task-json" type="checkbox" />
+        <span>Auto start</span>
+      </label>
+    </div>
+
+    <div id="detected-task-notice" class="notice detected-task-notice" role="status" hidden></div>
     <div id="notice" class="notice" role="status" hidden></div>
     <main id="task-list" class="task-list"></main>
 
     <template id="empty-template">
       <section class="empty-state">
         <strong>No tasks loaded</strong>
-        <p>Import a JSON task and let one agent work through it end-to-end.</p>
+        <p>Generate task JSON in ChatGPT or import a JSON file, then let one agent work through it end-to-end.</p>
       </section>
     </template>
 

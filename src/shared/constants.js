@@ -28,7 +28,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   defaultMode: EXECUTION_MODES.AUTO,
   maxConcurrentAgents: 1,
   maxAutoContinuations: 40,
-  visualMouse: true
+  visualMouse: true,
+  autoDetectTaskJson: true,
+  autoImportDetectedTasks: true,
+  autoStartDetectedTasks: false
 });
 
 export const TERMINAL_AGENT_STATES = new Set([
@@ -40,6 +43,7 @@ export const TERMINAL_AGENT_STATES = new Set([
 export const MESSAGE_TYPES = Object.freeze({
   GET_STATE: "GET_STATE",
   IMPORT_TASK_PAYLOAD: "IMPORT_TASK_PAYLOAD",
+  TASK_JSON_CANDIDATES: "TASK_JSON_CANDIDATES",
   START_TASK: "START_TASK",
   CONTINUE_TASK: "CONTINUE_TASK",
   PAUSE_TASK: "PAUSE_TASK",

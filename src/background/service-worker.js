@@ -3,9 +3,14 @@ import {
   getState,
   initializeState,
   setSettings,
-  upsertTasks
+  upsertTasks,
+  recordDetectedTaskPayload
 } from "../storage/repository.js";
 import { parseTaskPayload } from "../tasks/parser.js";
+import {
+  fingerprintTaskPayload,
+  parseDetectedTaskPayload
+} from "../tasks/detected-task-json.js";
 import { captureTaskEvidence } from "./evidence-capture.js";
 import { setVisualMouseVisibility } from "./browser-operator.js";
 import {
@@ -90,6 +95,86 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const tasks = parseTaskPayload(message.payload);
           const state = await upsertTasks(tasks);
           sendResponse({ ok: true, imported: tasks.length, state });
+          break;
+        }
+        case MESSAGE_TYPES.TASK_JSON_CANDIDATES: {
+          const current = await getState();
+          if (current.settings?.autoDetectTaskJson === false) {
+            sendResponse({ ok: true, detected: 0, imported: 0, ignored: true });
+            break;
+          }
+
+          const candidates = Array.isArray(message.candidates)
+            ? message.candidates.slice(0, 12)
+            : [];
+
+          let detected = 0;
+          let imported = 0;
+          let skippedExisting = 0;
+          let duplicates = 0;
+          let latestState = current;
+          let firstImportedTaskId = "";
+
+          for (const candidate of candidates) {
+            if (typeof candidate !== "string" || candidate.length > 300000) continue;
+
+            try {
+              const { tasks } = parseDetectedTaskPayload(candidate);
+              const fingerprint = fingerprintTaskPayload(candidate);
+              const existingDetection = latestState.detectedTaskPayloads?.[fingerprint];
+              const autoImport = current.settings?.autoImportDetectedTasks !== false;
+
+              if (existingDetection?.importedAt || (existingDetection && !autoImport)) {
+                duplicates += 1;
+                continue;
+              }
+
+              const result = await recordDetectedTaskPayload({
+                fingerprint,
+                tasks,
+                sourceUrl: message.url || sender.tab?.url || "",
+                autoImport
+              });
+
+              latestState = result.state;
+              if (result.duplicate) {
+                duplicates += 1;
+                continue;
+              }
+
+              detected += tasks.length;
+              imported += result.importedTaskIds.length;
+              skippedExisting += result.skippedExisting;
+              if (!firstImportedTaskId && result.importedTaskIds.length) {
+                firstImportedTaskId = result.importedTaskIds[0];
+              }
+            } catch {
+              // Ignore valid JSON that does not match the task schema.
+            }
+          }
+
+          let autoStarted = false;
+          if (
+            firstImportedTaskId &&
+            latestState.settings?.autoStartDetectedTasks === true
+          ) {
+            try {
+              await startTask(firstImportedTaskId, "auto", false);
+              autoStarted = true;
+            } catch (error) {
+              console.warn("Detected task was imported but could not auto-start.", error);
+            }
+          }
+
+          sendResponse({
+            ok: true,
+            detected,
+            imported,
+            skippedExisting,
+            duplicates,
+            autoStarted,
+            state: await getState()
+          });
           break;
         }
         case MESSAGE_TYPES.START_TASK:
