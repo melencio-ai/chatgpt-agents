@@ -17,9 +17,20 @@
   const selectors = {
     composer: [
       "#prompt-textarea",
+      "textarea#prompt-textarea",
+      "textarea[name='prompt']",
       "textarea[data-testid='prompt-textarea']",
+      "textarea[placeholder*='Message']",
+      "textarea[placeholder*='Ask']",
       "div[contenteditable='true'][data-testid='prompt-textarea']",
-      "main form div[contenteditable='true']"
+      "div[contenteditable='plaintext-only'][data-testid='prompt-textarea']",
+      "[role='textbox'][contenteditable='true']",
+      "[role='textbox'][contenteditable='plaintext-only']",
+      "div.ProseMirror[contenteditable='true']",
+      "div.ProseMirror[contenteditable='plaintext-only']",
+      "main form textarea",
+      "main form [contenteditable='true']",
+      "main form [contenteditable='plaintext-only']"
     ],
     sendButton: [
       "button[data-testid='send-button']",
@@ -52,16 +63,144 @@
     ]
   };
 
-  function firstMatch(list) {
+  let cachedQueryRoots = [document];
+  let lastQueryRootScan = 0;
+
+  function getQueryRoots(force = false) {
+    const now = Date.now();
+    if (!force && now - lastQueryRootScan < 1000) return cachedQueryRoots;
+
+    const roots = [document];
+    const seen = new Set(roots);
+
+    for (let index = 0; index < roots.length; index += 1) {
+      const root = roots[index];
+      let elements = [];
+      try {
+        elements = root.querySelectorAll("*");
+      } catch {
+        continue;
+      }
+
+      for (const element of elements) {
+        if (element.shadowRoot && !seen.has(element.shadowRoot)) {
+          seen.add(element.shadowRoot);
+          roots.push(element.shadowRoot);
+        }
+      }
+    }
+
+    cachedQueryRoots = roots;
+    lastQueryRootScan = now;
+    return roots;
+  }
+
+  function queryAll(selector) {
+    const matches = [];
+    const seen = new Set();
+
+    for (const root of getQueryRoots()) {
+      let elements = [];
+      try {
+        elements = root.querySelectorAll(selector);
+      } catch {
+        continue;
+      }
+
+      for (const element of elements) {
+        if (!seen.has(element)) {
+          seen.add(element);
+          matches.push(element);
+        }
+      }
+    }
+
+    return matches;
+  }
+
+  function firstMatch(list, { visible = false } = {}) {
     for (const selector of list) {
-      const element = document.querySelector(selector);
+      const elements = queryAll(selector);
+      const element = visible ? elements.find(isVisible) : elements[0];
       if (element) return element;
     }
     return null;
   }
 
+  function composerCandidateScore(element) {
+    if (!element) return -1;
+
+    const id = String(element.id || "").toLowerCase();
+    const testId = String(element.getAttribute("data-testid") || "").toLowerCase();
+    const role = String(element.getAttribute("role") || "").toLowerCase();
+    const placeholder = String(element.getAttribute("placeholder") || "").toLowerCase();
+    const ariaLabel = String(element.getAttribute("aria-label") || "").toLowerCase();
+    const className = typeof element.className === "string" ? element.className.toLowerCase() : "";
+    const identifyingText = [id, testId, role, placeholder, ariaLabel, className].join(" ");
+
+    let score = 0;
+    if (id === "prompt-textarea") score += 120;
+    if (/prompt|composer/.test(testId)) score += 100;
+    if (role === "textbox") score += 55;
+    if (/message|ask|prompt|chat/.test(placeholder)) score += 45;
+    if (/message|ask|prompt|chat/.test(ariaLabel)) score += 35;
+    if (/prosemirror/.test(className)) score += 25;
+    if (element.closest("form")) score += 30;
+    if (element.closest("main")) score += 15;
+    if (element instanceof HTMLTextAreaElement) score += 15;
+    if (element.isContentEditable) score += 15;
+    if (/search/.test(identifyingText) && !/prompt|message|ask/.test(identifyingText)) score -= 100;
+
+    const rect = element.getBoundingClientRect();
+    if (rect.top > window.innerHeight * 0.45) score += 10;
+
+    return score;
+  }
+
+  function isComposerCandidate(element) {
+    if (!element || !isVisible(element)) return false;
+    if (element.disabled || element.getAttribute("aria-disabled") === "true") return false;
+    if (element.closest("[inert]")) return false;
+    if (element.matches("[role='searchbox'], input[type='search']")) return false;
+
+    const editable = element instanceof HTMLTextAreaElement ||
+      element instanceof HTMLInputElement ||
+      element.isContentEditable ||
+      ["true", "plaintext-only"].includes(element.getAttribute("contenteditable"));
+
+    if (!editable) return false;
+
+    const type = String(element.getAttribute("type") || "").toLowerCase();
+    if (element instanceof HTMLInputElement && type && !["text", ""].includes(type)) return false;
+
+    return true;
+  }
+
   function getComposer() {
-    return firstMatch(selectors.composer);
+    const explicitCandidates = selectors.composer
+      .flatMap((selector) => queryAll(selector))
+      .filter(isComposerCandidate)
+      .sort((a, b) => composerCandidateScore(b) - composerCandidateScore(a));
+
+    if (explicitCandidates.length) return explicitCandidates[0];
+
+    getQueryRoots(true);
+    const fallbackSelectors = [
+      "main form textarea",
+      "main form [role='textbox']",
+      "main form [contenteditable]:not([contenteditable='false'])",
+      "form textarea",
+      "form [role='textbox']",
+      "form [contenteditable]:not([contenteditable='false'])",
+      "main textarea",
+      "main [role='textbox'][contenteditable]:not([contenteditable='false'])",
+      "main [contenteditable]:not([contenteditable='false'])"
+    ];
+
+    return fallbackSelectors
+      .flatMap((selector) => queryAll(selector))
+      .filter(isComposerCandidate)
+      .sort((a, b) => composerCandidateScore(b) - composerCandidateScore(a))[0] || null;
   }
 
   function isVisible(element) {
@@ -98,7 +237,7 @@
   }
 
   function getStopButton() {
-    return firstMatch(selectors.stopButton);
+    return firstMatch(selectors.stopButton, { visible: true });
   }
 
   function getFileInput() {
@@ -219,9 +358,18 @@
     return down;
   }
 
+  function describeComposerEnvironment() {
+    const textareas = queryAll("textarea").filter(isVisible).length;
+    const textboxes = queryAll("[role='textbox']").filter(isVisible).length;
+    const editables = queryAll("[contenteditable]:not([contenteditable='false'])").filter(isVisible).length;
+    return `url=${location.href}; visible textareas=${textareas}; textboxes=${textboxes}; contenteditables=${editables}`;
+  }
+
   async function injectPrompt(prompt) {
-    const composer = await waitFor(getComposer);
-    if (!composer) throw new Error("ChatGPT composer was not found.");
+    const composer = await waitFor(getComposer, 20000, 200);
+    if (!composer) {
+      throw new Error(`ChatGPT composer was not found. ${describeComposerEnvironment()}`);
+    }
 
     composer.focus();
     setNativeValue(composer, String(prompt || ""));
