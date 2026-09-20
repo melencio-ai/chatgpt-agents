@@ -131,7 +131,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
               const result = await recordDetectedTaskPayload({
                 fingerprint,
-                payload: candidate,
                 tasks,
                 sourceUrl: message.url || sender.tab?.url || "",
                 autoImport
