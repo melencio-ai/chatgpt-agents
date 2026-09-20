@@ -9,10 +9,12 @@ function nowIso() {
 
 export function createEmptyState() {
   return {
-    version: 1,
+    version: 2,
     tasks: {},
     agents: {},
     runs: {},
+    detectedTaskPayloads: {},
+    lastTaskDetection: null,
     settings: { ...DEFAULT_SETTINGS },
     updatedAt: nowIso()
   };
@@ -37,6 +39,12 @@ function mergeDefaults(value) {
     tasks,
     agents: value.agents && typeof value.agents === "object" ? value.agents : {},
     runs: value.runs && typeof value.runs === "object" ? value.runs : {},
+    detectedTaskPayloads: value.detectedTaskPayloads && typeof value.detectedTaskPayloads === "object"
+      ? value.detectedTaskPayloads
+      : {},
+    lastTaskDetection: value.lastTaskDetection && typeof value.lastTaskDetection === "object"
+      ? value.lastTaskDetection
+      : null,
     settings: {
       ...DEFAULT_SETTINGS,
       ...(value.settings || {}),
@@ -85,6 +93,86 @@ export async function upsertTasks(tasks) {
       };
     }
   });
+}
+
+export async function recordDetectedTaskPayload({
+  fingerprint,
+  payload,
+  tasks,
+  sourceUrl = "",
+  autoImport = true
+}) {
+  let result = {
+    duplicate: false,
+    importedTaskIds: [],
+    skippedExisting: 0
+  };
+
+  const state = await updateState((state) => {
+    const now = nowIso();
+    const existing = state.detectedTaskPayloads[fingerprint] || null;
+
+    if (existing?.importedAt || (existing && !autoImport)) {
+      result = {
+        duplicate: true,
+        importedTaskIds: [],
+        skippedExisting: existing.skippedExisting || 0
+      };
+      return state;
+    }
+
+    const importedTaskIds = [];
+    let skippedExisting = 0;
+
+    if (autoImport) {
+      for (const task of tasks) {
+        if (state.tasks[task.id]) {
+          skippedExisting += 1;
+          continue;
+        }
+
+        state.tasks[task.id] = {
+          ...task,
+          importedAt: now,
+          updatedAt: now
+        };
+        importedTaskIds.push(task.id);
+      }
+    }
+
+    state.detectedTaskPayloads[fingerprint] = {
+      fingerprint,
+      payload,
+      sourceUrl,
+      taskIds: tasks.map((task) => task.id),
+      taskCount: tasks.length,
+      detectedAt: existing?.detectedAt || now,
+      importedAt: autoImport ? now : null,
+      importedTaskIds,
+      skippedExisting
+    };
+
+    state.lastTaskDetection = {
+      fingerprint,
+      detectedAt: existing?.detectedAt || now,
+      activityAt: now,
+      sourceUrl,
+      taskCount: tasks.length,
+      importedCount: importedTaskIds.length,
+      skippedExisting,
+      autoImported: Boolean(autoImport)
+    };
+
+    result = {
+      duplicate: false,
+      importedTaskIds,
+      skippedExisting
+    };
+
+    return state;
+  });
+
+  return { state, ...result };
 }
 
 export async function setSettings(patch) {
