@@ -3,6 +3,7 @@
     CHATGPT_PAGE_READY: "CHATGPT_PAGE_READY",
     CHATGPT_RESPONSE: "CHATGPT_RESPONSE",
     CHATGPT_GENERATING: "CHATGPT_GENERATING",
+    TASK_JSON_CANDIDATES: "TASK_JSON_CANDIDATES",
     INJECT_PROMPT: "INJECT_PROMPT",
     ATTACH_IMAGE: "ATTACH_IMAGE",
     STOP_GENERATION: "STOP_GENERATION",
@@ -13,6 +14,8 @@
   let lastReportedAssistantText = "";
   let lastGenerating = false;
   let settleTimer = null;
+  let lastTaskJsonSignature = "";
+  let lastTaskJsonReportAt = 0;
 
   const selectors = {
     composer: [
@@ -248,14 +251,71 @@
     return Boolean(getStopButton());
   }
 
-  function getLatestAssistantText() {
+  function getLatestAssistantElement() {
     for (const selector of selectors.assistantMessages) {
       const messages = document.querySelectorAll(selector);
-      if (messages.length) {
-        return (messages[messages.length - 1].innerText || messages[messages.length - 1].textContent || "").trim();
-      }
+      if (messages.length) return messages[messages.length - 1];
     }
-    return "";
+    return null;
+  }
+
+  function getLatestAssistantText() {
+    const element = getLatestAssistantElement();
+    return (element?.innerText || element?.textContent || "").trim();
+  }
+
+  function normalizeJsonCandidate(value) {
+    let text = String(value || "").trim();
+    text = text.replace(/^json\s*[\r\n]+/i, "").trim();
+    if (text.length < 20) return "";
+    if (!((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]")))) {
+      return "";
+    }
+    return text;
+  }
+
+  function extractJsonCandidates(element) {
+    if (!element) return [];
+
+    const candidates = new Set();
+    const addCandidate = (value) => {
+      const candidate = normalizeJsonCandidate(value);
+      if (candidate) candidates.add(candidate);
+    };
+
+    for (const node of element.querySelectorAll("pre code, pre")) {
+      addCandidate(node.innerText || node.textContent || "");
+    }
+
+    const fullText = element.innerText || element.textContent || "";
+    for (const match of fullText.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+      addCandidate(match[1]);
+    }
+
+    return Array.from(candidates).slice(0, 12);
+  }
+
+  function reportTaskJsonCandidates() {
+    if (isGenerating()) return false;
+
+    const element = getLatestAssistantElement();
+    const candidates = extractJsonCandidates(element);
+    if (!candidates.length) return false;
+
+    const signature = candidates.join("\n\u241e\n");
+    const now = Date.now();
+    if (signature === lastTaskJsonSignature && now - lastTaskJsonReportAt < 15000) {
+      return false;
+    }
+
+    lastTaskJsonSignature = signature;
+    lastTaskJsonReportAt = now;
+    safeSend({
+      type: MESSAGE_TYPES.TASK_JSON_CANDIDATES,
+      candidates,
+      url: location.href
+    });
+    return true;
   }
 
   function hasAgentDirective(text) {
@@ -485,6 +545,7 @@
 
     clearTimeout(settleTimer);
     settleTimer = setTimeout(() => {
+      reportTaskJsonCandidates();
       reportLatestAssistant({ allowUnsubmitted: true });
     }, 1200);
   }
@@ -536,6 +597,7 @@
   function announceReady() {
     safeSend({ type: MESSAGE_TYPES.CHATGPT_PAGE_READY, url: location.href });
     setTimeout(() => {
+      reportTaskJsonCandidates();
       reportLatestAssistant({ allowUnsubmitted: true });
     }, 1000);
   }
@@ -552,6 +614,7 @@
       previousUrl = location.href;
       safeSend({ type: MESSAGE_TYPES.CHATGPT_PAGE_READY, url: location.href });
     }
+    reportTaskJsonCandidates();
     reportLatestAssistant({ allowUnsubmitted: true });
   }, 1500);
 })();
