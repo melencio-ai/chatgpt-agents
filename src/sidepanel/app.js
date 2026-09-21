@@ -8,6 +8,7 @@ const defaultMode = document.querySelector("#default-mode");
 const maxConcurrent = document.querySelector("#max-concurrent");
 const maxContinuations = document.querySelector("#max-continuations");
 const visualMouse = document.querySelector("#visual-mouse");
+const hideCompletedTasks = document.querySelector("#hide-completed");
 const autoDetectTaskJson = document.querySelector("#auto-detect-task-json");
 const autoImportTaskJson = document.querySelector("#auto-import-task-json");
 const autoStartTaskJson = document.querySelector("#auto-start-task-json");
@@ -122,6 +123,13 @@ function friendlyStatus(agent, task) {
   return agent.state.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (char) => char.toUpperCase());
 }
 
+function isTaskCompleted(task) {
+  const agent = agentForTask(task.id);
+  if (agent?.state === AGENT_STATES.COMPLETE) return true;
+  const status = String(task.status || "").trim().toLowerCase();
+  return ["complete", "completed", "done"].includes(status);
+}
+
 function targetLabel(task) {
   try {
     return task.audit_target?.url ? new URL(task.audit_target.url).hostname : "";
@@ -226,19 +234,29 @@ function renderTaskJsonSettings() {
 
 function render() {
   if (!state) return;
-  const tasks = Object.values(state.tasks || {}).sort((a, b) => String(b.updatedAt || b.importedAt || "").localeCompare(String(a.updatedAt || a.importedAt || "")));
+  const allTasks = Object.values(state.tasks || {}).sort((a, b) => String(b.updatedAt || b.importedAt || "").localeCompare(String(a.updatedAt || a.importedAt || "")));
+  const hideCompleted = state.settings?.hideCompletedTasks === true;
+  const tasks = hideCompleted ? allTasks.filter((task) => !isTaskCompleted(task)) : allTasks;
   const activeCount = Object.values(state.agents || {}).filter((agent) => ![AGENT_STATES.COMPLETE, AGENT_STATES.ERROR, AGENT_STATES.CANCELLED, AGENT_STATES.PAUSED].includes(agent.state)).length;
-  summary.textContent = `${tasks.length} task${tasks.length === 1 ? "" : "s"} · ${activeCount ? "agent working" : "idle"}`;
+  const taskCountLabel = hideCompleted && tasks.length !== allTasks.length
+    ? `${tasks.length}/${allTasks.length} tasks`
+    : `${allTasks.length} task${allTasks.length === 1 ? "" : "s"}`;
+  summary.textContent = `${taskCountLabel} · ${activeCount ? "agent working" : "idle"}`;
 
   defaultMode.value = "auto";
   maxConcurrent.value = 1;
   maxContinuations.value = state.settings?.maxAutoContinuations || 40;
   visualMouse.checked = state.settings?.visualMouse !== false;
+  hideCompletedTasks.checked = hideCompleted;
   renderTaskJsonSettings();
   renderDetectedTaskNotice();
 
-  if (!tasks.length) {
+  if (!allTasks.length) {
     taskList.replaceChildren(emptyTemplate.content.cloneNode(true));
+    return;
+  }
+  if (!tasks.length) {
+    taskList.innerHTML = '<section class="empty-state"><strong>All completed tasks are hidden</strong><p>Uncheck “Hide completed” to show them again.</p></section>';
     return;
   }
   taskList.innerHTML = tasks.map(renderTask).join("");
@@ -321,6 +339,7 @@ async function persistSettings() {
         maxConcurrentAgents: 1,
         maxAutoContinuations: Math.max(5, Number(maxContinuations.value) || 40),
         visualMouse: visualMouse.checked,
+        hideCompletedTasks: hideCompletedTasks.checked,
         autoDetectTaskJson: autoDetectTaskJson.checked,
         autoImportDetectedTasks: autoImportTaskJson.checked,
         autoStartDetectedTasks: autoDetectTaskJson.checked && autoImportTaskJson.checked && autoStartTaskJson.checked
@@ -335,6 +354,7 @@ async function persistSettings() {
 
 maxContinuations.addEventListener("change", persistSettings);
 visualMouse.addEventListener("change", persistSettings);
+hideCompletedTasks.addEventListener("change", persistSettings);
 autoDetectTaskJson.addEventListener("change", persistSettings);
 autoImportTaskJson.addEventListener("change", persistSettings);
 autoStartTaskJson.addEventListener("change", persistSettings);
