@@ -31,7 +31,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   visualMouse: true,
   autoDetectTaskJson: true,
   autoImportDetectedTasks: true,
-  autoStartDetectedTasks: false
+  autoStartDetectedTasks: false,
+  hideCompletedTasks: false
 });
 
 export const TERMINAL_AGENT_STATES = new Set([
