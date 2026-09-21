@@ -33,6 +33,20 @@ h1 { margin: 0; font-size: 15px; letter-spacing: -.01em; }
 }
 
 .global-actions { display: flex; gap: 6px; padding: 0 12px 10px; }
+.filter-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.filter-checkbox input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+}
 .button {
   appearance: none; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); padding: 7px 9px; cursor: pointer;
 }
