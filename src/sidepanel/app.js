@@ -17,6 +17,7 @@ const emptyTemplate = document.querySelector("#empty-template");
 
 let state = null;
 let noticeTimer = null;
+const expandedTaskIds = new Set();
 
 function esc(value) {
   return String(value ?? "")
@@ -141,6 +142,13 @@ function targetLabel(task) {
 function renderActions(task, agent) {
   const stateName = agent?.state;
   const tutorial = Boolean(task.tutorial?.enabled);
+  const expanded = expandedTaskIds.has(task.id);
+  const hasDetails = Boolean(
+    (task.subtasks || []).length ||
+    agent?.lastBrowserObservation?.url ||
+    agent?.error ||
+    responsePreview
+  );
   const hasLiveAgent = agent && ![AGENT_STATES.COMPLETE, AGENT_STATES.ERROR, AGENT_STATES.CANCELLED].includes(stateName);
   const canContinue = agent && [AGENT_STATES.RESPONSE_READY, AGENT_STATES.NEEDS_USER, AGENT_STATES.PAUSED, AGENT_STATES.READY].includes(stateName);
   const canPause = agent && ![AGENT_STATES.PAUSED, AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED, AGENT_STATES.ERROR].includes(stateName);
@@ -167,7 +175,7 @@ function renderTask(task) {
   const tutorial = Boolean(task.tutorial?.enabled);
 
   return `
-    <article class="task-card">
+    <article class="task-card ${expanded ? "expanded" : "collapsed"}">
       <div class="task-head">
         <div class="task-title">
           <strong>${esc(task.title)}</strong>
@@ -195,11 +203,14 @@ function renderTask(task) {
           ${agent?.browserStepCount ? `<span>step ${agent.browserStepCount}</span>` : ""}
         </div>
         ${task.next_action ? `<p class="next-action"><strong>Goal:</strong> ${esc(task.next_action)}</p>` : ""}
-        ${(task.subtasks || []).length ? `<ul class="subtasks">${task.subtasks.map((item) => `<li class="${item.completed ? "done" : ""}"><span class="subtask-state" aria-hidden="true">${item.completed ? "✓" : "○"}</span><span class="subtask-title">${esc(item.title)}</span></li>`).join("")}</ul>` : ""}
         ${renderActions(task, agent)}
-        ${agent?.lastBrowserObservation?.url ? `<div class="response">Browser: ${esc(agent.lastBrowserObservation.url)}</div>` : ""}
-        ${agent?.error ? `<div class="error">${esc(agent.error)}</div>` : ""}
-        ${responsePreview ? `<div class="response">${esc(responsePreview)}</div>` : ""}
+        ${hasDetails ? `<button class="task-details-toggle" data-action="toggle-details" data-task-id="${esc(task.id)}" aria-expanded="${expanded ? "true" : "false"}">${expanded ? "See less" : "See more"}</button>` : ""}
+        ${hasDetails ? `<div class="task-details" ${expanded ? "" : "hidden"}>
+          ${(task.subtasks || []).length ? `<ul class="subtasks">${task.subtasks.map((item) => `<li class="${item.completed ? "done" : ""}"><span class="subtask-state" aria-hidden="true">${item.completed ? "✓" : "○"}</span><span class="subtask-title">${esc(item.title)}</span></li>`).join("")}</ul>` : ""}
+          ${agent?.lastBrowserObservation?.url ? `<div class="response">Browser: ${esc(agent.lastBrowserObservation.url)}</div>` : ""}
+          ${agent?.error ? `<div class="error">${esc(agent.error)}</div>` : ""}
+          ${responsePreview ? `<div class="response">${esc(responsePreview)}</div>` : ""}
+        </div>` : ""}
       </div>
     </article>`;
 }
@@ -288,6 +299,14 @@ taskList.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
   const taskId = button.dataset.taskId;
+
+  if (button.dataset.action === "toggle-details") {
+    if (expandedTaskIds.has(taskId)) expandedTaskIds.delete(taskId);
+    else expandedTaskIds.add(taskId);
+    render();
+    return;
+  }
+
   button.disabled = true;
   try {
     switch (button.dataset.action) {
