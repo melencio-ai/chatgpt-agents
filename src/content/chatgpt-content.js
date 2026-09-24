@@ -3,6 +3,7 @@
     CHATGPT_PAGE_READY: "CHATGPT_PAGE_READY",
     CHATGPT_RESPONSE: "CHATGPT_RESPONSE",
     CHATGPT_GENERATING: "CHATGPT_GENERATING",
+    CHATGPT_ERROR: "CHATGPT_ERROR",
     TASK_JSON_CANDIDATES: "TASK_JSON_CANDIDATES",
     INJECT_PROMPT: "INJECT_PROMPT",
     ATTACH_IMAGE: "ATTACH_IMAGE",
@@ -13,6 +14,7 @@
   let submittedByExtension = false;
   let lastReportedAssistantText = "";
   let lastGenerating = false;
+  let lastReportedErrorText = "";
   let settleTimer = null;
   let lastTaskJsonSignature = "";
   let lastTaskJsonReportAt = 0;
@@ -264,6 +266,26 @@
     return (element?.innerText || element?.textContent || "").trim();
   }
 
+  function getChatErrorText() {
+    const errorPattern = /something went wrong|there was an error|error generating|network error|request timed out|failed to (?:generate|respond)|try again later/i;
+    const latest = getLatestAssistantText();
+    if (latest && !hasAgentDirective(latest) && errorPattern.test(latest)) {
+      return latest.slice(0, 500);
+    }
+
+    const candidates = [
+      ...queryAll("[role='alert']"),
+      ...queryAll("[data-testid*='error']")
+    ];
+    for (const element of candidates) {
+      if (!isVisible(element)) continue;
+      const text = String(element.innerText || element.textContent || "").trim();
+      if (errorPattern.test(text)) return text.slice(0, 500);
+    }
+
+    return "";
+  }
+
   function normalizeJsonCandidate(value) {
     let text = String(value || "").trim();
     text = text.replace(/^json\s*[\r\n]+/i, "").trim();
@@ -335,6 +357,24 @@
     safeSend({
       type: MESSAGE_TYPES.CHATGPT_RESPONSE,
       text: latest,
+      url: location.href
+    });
+    return true;
+  }
+
+  function reportChatError() {
+    if (isGenerating()) return false;
+    const error = getChatErrorText();
+    if (!error) {
+      lastReportedErrorText = "";
+      return false;
+    }
+    if (error === lastReportedErrorText) return false;
+
+    lastReportedErrorText = error;
+    safeSend({
+      type: MESSAGE_TYPES.CHATGPT_ERROR,
+      error,
       url: location.href
     });
     return true;
@@ -475,6 +515,7 @@
   }
 
   async function injectPrompt(prompt) {
+    lastReportedErrorText = "";
     const composer = await waitFor(getComposer, 20000, 200);
     if (!composer) {
       throw new Error(`ChatGPT composer was not found. ${describeComposerEnvironment()}`);
@@ -601,6 +642,7 @@
 
     clearTimeout(settleTimer);
     settleTimer = setTimeout(() => {
+      reportChatError();
       reportTaskJsonCandidates();
       reportLatestAssistant({ allowUnsubmitted: true });
     }, 1200);
@@ -637,6 +679,7 @@
               ready: Boolean(getComposer()),
               generating: isGenerating(),
               latestAssistantText: getLatestAssistantText(),
+              errorText: getChatErrorText(),
               url: location.href
             });
             break;
@@ -653,6 +696,7 @@
   function announceReady() {
     safeSend({ type: MESSAGE_TYPES.CHATGPT_PAGE_READY, url: location.href });
     setTimeout(() => {
+      reportChatError();
       reportTaskJsonCandidates();
       reportLatestAssistant({ allowUnsubmitted: true });
     }, 1000);
@@ -671,6 +715,7 @@
       safeSend({ type: MESSAGE_TYPES.CHATGPT_PAGE_READY, url: location.href });
     }
     reportTaskJsonCandidates();
+    reportChatError();
     reportLatestAssistant({ allowUnsubmitted: true });
   }, 1500);
 })();

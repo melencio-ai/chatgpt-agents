@@ -77,3 +77,19 @@ test("parses tutorial task configuration", () => {
   assert.equal(task.tutorial.title, "How to import contacts");
   assert.equal(task.tutorial.pace, "slow");
 });
+
+test("recognizes an explicitly described browser automation and its subtask URL", () => {
+  const [task] = parseTaskPayload({
+    title: "Browser test - send WhatsApp message",
+    next_action: "Run this as a browser automation. Wait 10 seconds, open WhatsApp Web, and send the supplied message.",
+    subtasks: [
+      { title: "Open https://web.whatsapp.com/send?phone=15555550199" },
+      { title: "Type exactly: Good morning everyone" },
+      { title: "Press Enter to send" }
+    ]
+  });
+
+  assert.equal(task.task_mode, "browser_automation");
+  assert.equal(task.browser_mode, "interactive");
+  assert.equal(task.browser_target.url, "https://web.whatsapp.com/send?phone=15555550199");
+});

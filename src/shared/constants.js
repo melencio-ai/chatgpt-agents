@@ -1,4 +1,12 @@
 export const STORAGE_KEY = "chatgptAgentsState";
+export const MAX_CONCURRENT_AGENTS = 3;
+export const DEFAULT_CONCURRENT_AGENTS = 1;
+
+export function normalizeMaxConcurrentAgents(value, fallback = DEFAULT_CONCURRENT_AGENTS) {
+  const parsed = Number(value);
+  const normalized = Number.isFinite(parsed) ? Math.floor(parsed) : fallback;
+  return Math.min(MAX_CONCURRENT_AGENTS, Math.max(1, normalized));
+}
 
 export const AGENT_STATES = Object.freeze({
   QUEUED: "QUEUED",
@@ -26,7 +34,7 @@ export const EXECUTION_MODES = Object.freeze({
 
 export const DEFAULT_SETTINGS = Object.freeze({
   defaultMode: EXECUTION_MODES.AUTO,
-  maxConcurrentAgents: 1,
+  maxConcurrentAgents: DEFAULT_CONCURRENT_AGENTS,
   maxAutoContinuations: 40,
   visualMouse: true,
   autoDetectTaskJson: true,
@@ -59,6 +67,7 @@ export const MESSAGE_TYPES = Object.freeze({
   CHATGPT_PAGE_READY: "CHATGPT_PAGE_READY",
   CHATGPT_RESPONSE: "CHATGPT_RESPONSE",
   CHATGPT_GENERATING: "CHATGPT_GENERATING",
+  CHATGPT_ERROR: "CHATGPT_ERROR",
   INJECT_PROMPT: "INJECT_PROMPT",
   ATTACH_IMAGE: "ATTACH_IMAGE",
   STOP_GENERATION: "STOP_GENERATION",

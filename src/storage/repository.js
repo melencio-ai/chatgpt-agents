@@ -1,6 +1,7 @@
 import {
   DEFAULT_SETTINGS,
-  STORAGE_KEY
+  STORAGE_KEY,
+  normalizeMaxConcurrentAgents
 } from "../shared/constants.js";
 
 function nowIso() {
@@ -9,7 +10,7 @@ function nowIso() {
 
 export function createEmptyState() {
   return {
-    version: 2,
+    version: 3,
     tasks: {},
     agents: {},
     runs: {},
@@ -23,6 +24,7 @@ export function createEmptyState() {
 function mergeDefaults(value) {
   const base = createEmptyState();
   if (!value || typeof value !== "object") return base;
+  const storedVersion = Number(value.version) || 0;
 
   const { recordings: _legacyRecordings, ...rest } = value;
   const tasks = value.tasks && typeof value.tasks === "object"
@@ -50,7 +52,9 @@ function mergeDefaults(value) {
       ...DEFAULT_SETTINGS,
       ...(value.settings || {}),
       defaultMode: "auto",
-      maxConcurrentAgents: 1,
+      maxConcurrentAgents: storedVersion < 3
+        ? DEFAULT_SETTINGS.maxConcurrentAgents
+        : normalizeMaxConcurrentAgents(value.settings?.maxConcurrentAgents),
       maxAutoContinuations: Math.max(
         40,
         Number(value.settings?.maxAutoContinuations) || 0
@@ -186,7 +190,9 @@ export async function setSettings(patch) {
       ...state.settings,
       ...patch,
       defaultMode: "auto",
-      maxConcurrentAgents: 1,
+      maxConcurrentAgents: normalizeMaxConcurrentAgents(
+        patch?.maxConcurrentAgents ?? state.settings?.maxConcurrentAgents
+      ),
       maxAutoContinuations: Math.max(
         5,
         Number(patch?.maxAutoContinuations ?? state.settings?.maxAutoContinuations) || 40

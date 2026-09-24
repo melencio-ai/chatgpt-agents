@@ -1,10 +1,10 @@
 # ChatGPT Agents Tab Manager
 
-A Manifest V3 Chrome/Edge extension that runs one ChatGPT browser agent at a time. The agent can operate a target web app through Chrome DevTools Protocol, inspect the current page, receive screenshots, choose the next safe browser action, and continue until its task is complete.
+A Manifest V3 Chrome/Edge extension that can run up to three ChatGPT browser agents at a time. Each agent can operate a target web app through Chrome DevTools Protocol, inspect the current page, receive screenshots, choose the next safe browser action, and continue until its task is complete.
 
 ## V0.6 — autonomous browser agent + guided tutorial navigation
 
-The extension now deliberately runs **one active agent at a time**.
+The extension defaults to **one active agent at a time** and allows an opt-in maximum of three from the **Agents** control. Automatic watchdog wake-ups remain disabled, so increasing concurrency only starts work explicitly queued or resumed by the user.
 
 For read-only audit tasks, the loop is:
 
@@ -34,6 +34,16 @@ next browser action
 ```
 
 The user only needs to intervene for a true blocker such as login/MFA, CAPTCHA, an external authentication origin, permission denial, or browser policy restriction.
+
+## Subtask progress
+
+Agent prompts include stable subtask IDs and require a machine-readable progress line:
+
+```text
+COMPLETED_SUBTASKS: ["stage-0", "stage-1"]
+```
+
+After each response, the extension marks the reported IDs complete in local storage. The side panel updates its remaining/done counter and strikes through completed subtask titles. An overall `AGENT_STATUS: COMPLETE` marks every subtask complete.
 
 
 
@@ -75,6 +85,20 @@ Tutorial task JSON supports:
 OBS handles recording quality, audio, canvas size, overlays, and final output. The extension only handles browser navigation and tutorial guidance.
 
 ## Screenshot-aware browser control
+
+Interactive browser automation tasks use `task_mode: "browser_automation"` (or the explicit phrase “browser automation” in the task) and a `browser_target` URL. In this mode the operator can type into a visible editable field and press a bounded set of keys, but only within the target origin. Read-only audit tasks retain their state-change blocks. Example:
+
+```json
+{
+  "title": "Send an authorized message",
+  "task_mode": "browser_automation",
+  "browser_mode": "interactive",
+  "browser_target": {
+    "url": "https://web.whatsapp.com/send?phone=15555550199"
+  },
+  "next_action": "Type exactly: Good morning everyone, press Enter, and visually verify the outgoing message."
+}
+```
 
 Autonomous audits and tutorials are screenshot-first. After every browser action, the extension captures the current viewport and attaches it to the ChatGPT conversation together with page text and a list of visible controls.
 

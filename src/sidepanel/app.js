@@ -1,4 +1,9 @@
-import { MESSAGE_TYPES, STORAGE_KEY, AGENT_STATES } from "../shared/constants.js";
+import {
+  MESSAGE_TYPES,
+  STORAGE_KEY,
+  AGENT_STATES,
+  normalizeMaxConcurrentAgents
+} from "../shared/constants.js";
 
 const taskList = document.querySelector("#task-list");
 const fileInput = document.querySelector("#file-input");
@@ -142,13 +147,6 @@ function targetLabel(task) {
 function renderActions(task, agent) {
   const stateName = agent?.state;
   const tutorial = Boolean(task.tutorial?.enabled);
-  const expanded = expandedTaskIds.has(task.id);
-  const hasDetails = Boolean(
-    (task.subtasks || []).length ||
-    agent?.lastBrowserObservation?.url ||
-    agent?.error ||
-    responsePreview
-  );
   const hasLiveAgent = agent && ![AGENT_STATES.COMPLETE, AGENT_STATES.ERROR, AGENT_STATES.CANCELLED].includes(stateName);
   const canContinue = agent && [AGENT_STATES.RESPONSE_READY, AGENT_STATES.NEEDS_USER, AGENT_STATES.PAUSED, AGENT_STATES.READY].includes(stateName);
   const canPause = agent && ![AGENT_STATES.PAUSED, AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED, AGENT_STATES.ERROR].includes(stateName);
@@ -158,7 +156,7 @@ function renderActions(task, agent) {
   if (hasLiveAgent) buttons.push('<button class="button primary" data-action="restart" data-task-id="' + esc(task.id) + '">Restart</button>');
   if (canContinue) buttons.push('<button class="button" data-action="continue" data-task-id="' + esc(task.id) + '">Resume</button>');
   if (agent?.tabId) buttons.push('<button class="button" data-action="open" data-task-id="' + esc(task.id) + '">Open Chat</button>');
-  if (tutorial && agent?.auditTabId) buttons.push('<button class="button" data-action="open-browser" data-task-id="' + esc(task.id) + '">Open Browser</button>');
+  if (agent?.auditTabId) buttons.push('<button class="button" data-action="open-browser" data-task-id="' + esc(task.id) + '">Open Browser</button>');
   if (canPause) buttons.push('<button class="button" data-action="pause" data-task-id="' + esc(task.id) + '">Pause</button>');
   if (agent && ![AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED].includes(stateName)) buttons.push('<button class="button danger" data-action="cancel" data-task-id="' + esc(task.id) + '">Cancel</button>');
 
@@ -173,6 +171,14 @@ function renderTask(task) {
   const auditTarget = targetLabel(task);
   const runtime = runtimeForAgent(agent);
   const tutorial = Boolean(task.tutorial?.enabled);
+  const expanded = expandedTaskIds.has(task.id);
+  const hasDetails = Boolean(
+    (task.subtasks || []).length ||
+    agent?.lastBrowserObservation?.url ||
+    agent?.error ||
+    agent?.lastWakeReason ||
+    responsePreview
+  );
 
   return `
     <article class="task-card ${expanded ? "expanded" : "collapsed"}">
@@ -196,11 +202,12 @@ function renderTask(task) {
       </div>
       <div class="task-body">
         <div class="meta">
-          <span>${total ? `${completed}/${total} subtasks` : "No subtasks"}</span>
+          <span>${total ? `${total - completed} remaining · ${completed}/${total} done` : "No subtasks"}</span>
           ${runtime ? `<span class="runtime ${runtime.live ? "live" : runtime.paused ? "paused" : "finished"}"><i></i>${runtime.live ? "LIVE" : runtime.paused ? "PAUSED" : "RUNTIME"} · ${runtime.elapsed}</span>` : ""}
           ${tutorial ? `<span class="tutorial-badge">TUTORIAL</span>` : ""}
           ${auditTarget ? `<span>browser: ${esc(auditTarget)}</span>` : ""}
           ${agent?.browserStepCount ? `<span>step ${agent.browserStepCount}</span>` : ""}
+          ${agent?.wakeAttemptCount && agent?.lastWakeAt ? `<span>auto-wake ${agent.wakeAttemptCount}</span>` : ""}
         </div>
         ${task.next_action ? `<p class="next-action"><strong>Goal:</strong> ${esc(task.next_action)}</p>` : ""}
         ${renderActions(task, agent)}
@@ -209,6 +216,7 @@ function renderTask(task) {
           ${(task.subtasks || []).length ? `<ul class="subtasks">${task.subtasks.map((item) => `<li class="${item.completed ? "done" : ""}"><span class="subtask-state" aria-hidden="true">${item.completed ? "✓" : "○"}</span><span class="subtask-title">${esc(item.title)}</span></li>`).join("")}</ul>` : ""}
           ${agent?.lastBrowserObservation?.url ? `<div class="response">Browser: ${esc(agent.lastBrowserObservation.url)}</div>` : ""}
           ${agent?.error ? `<div class="error">${esc(agent.error)}</div>` : ""}
+          ${agent?.lastWakeReason ? `<div class="response">Recovery: ${esc(agent.lastWakeReason)}</div>` : ""}
           ${responsePreview ? `<div class="response">${esc(responsePreview)}</div>` : ""}
         </div>` : ""}
       </div>
@@ -252,10 +260,10 @@ function render() {
   const taskCountLabel = hideCompleted && tasks.length !== allTasks.length
     ? `${tasks.length}/${allTasks.length} tasks`
     : `${allTasks.length} task${allTasks.length === 1 ? "" : "s"}`;
-  summary.textContent = `${taskCountLabel} · ${activeCount ? "agent working" : "idle"}`;
+  summary.textContent = `${taskCountLabel} · ${activeCount ? `${activeCount} agent${activeCount === 1 ? "" : "s"} working` : "idle"}`;
 
   defaultMode.value = "auto";
-  maxConcurrent.value = 1;
+  maxConcurrent.value = normalizeMaxConcurrentAgents(state.settings?.maxConcurrentAgents);
   maxContinuations.value = state.settings?.maxAutoContinuations || 40;
   visualMouse.checked = state.settings?.visualMouse !== false;
   hideCompletedTasks.checked = hideCompleted;
@@ -355,7 +363,7 @@ async function persistSettings() {
       type: MESSAGE_TYPES.UPDATE_SETTINGS,
       patch: {
         defaultMode: "auto",
-        maxConcurrentAgents: 1,
+        maxConcurrentAgents: normalizeMaxConcurrentAgents(maxConcurrent.value),
         maxAutoContinuations: Math.max(5, Number(maxContinuations.value) || 40),
         visualMouse: visualMouse.checked,
         hideCompletedTasks: hideCompletedTasks.checked,
@@ -372,6 +380,7 @@ async function persistSettings() {
 }
 
 maxContinuations.addEventListener("change", persistSettings);
+maxConcurrent.addEventListener("change", persistSettings);
 visualMouse.addEventListener("change", persistSettings);
 hideCompletedTasks.addEventListener("change", persistSettings);
 autoDetectTaskJson.addEventListener("change", persistSettings);

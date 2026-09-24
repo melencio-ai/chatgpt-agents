@@ -2,7 +2,8 @@ import {
   AGENT_STATES,
   EXECUTION_MODES,
   TERMINAL_AGENT_STATES,
-  MESSAGE_TYPES
+  MESSAGE_TYPES,
+  normalizeMaxConcurrentAgents
 } from "../shared/constants.js";
 import {
   getState,
@@ -17,6 +18,16 @@ import {
   buildBrowserObservationPrompt,
   parseAgentDirective
 } from "../tasks/prompt-builder.js";
+import { completeSubtasks } from "../tasks/subtask-progress.js";
+import {
+  browserTargetUrl,
+  isAutonomousBrowserTask,
+  isInteractiveBrowserTask
+} from "../tasks/browser-task.js";
+import {
+  MAX_AGENT_WAKE_ATTEMPTS,
+  getAgentRecoveryDecision
+} from "./agent-watchdog-policy.js";
 import {
   ensureAuditTab,
   observeAuditPage,
@@ -54,10 +65,6 @@ function makeId(prefix) {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-function isAutonomousAudit(task) {
-  return Boolean(task?.audit_target?.url && String(task.audit_mode || "").toLowerCase().includes("read"));
-}
-
 function isTutorialTask(task) {
   return Boolean(task?.tutorial?.enabled);
 }
@@ -78,6 +85,20 @@ async function patchTask(taskId, patch) {
   });
 }
 
+async function recordCompletedSubtasks(taskId, completedSubtaskIds) {
+  if (!Array.isArray(completedSubtaskIds) || !completedSubtaskIds.length) return;
+
+  await updateState((state) => {
+    const task = state.tasks[taskId];
+    if (!task) return;
+
+    const { subtasks, changed } = completeSubtasks(task.subtasks, completedSubtaskIds, nowIso());
+    if (changed) {
+      state.tasks[taskId] = { ...task, subtasks, updatedAt: nowIso() };
+    }
+  });
+}
+
 async function tabExists(tabId) {
   if (!tabId) return false;
   try {
@@ -86,6 +107,22 @@ async function tabExists(tabId) {
   } catch {
     return false;
   }
+}
+
+async function ensureAgentAuditTab(agent, targetUrl) {
+  const state = await getState();
+  const claimedTabIds = Object.values(state.agents)
+    .filter((other) =>
+      other.id !== agent.id &&
+      other.auditTabId &&
+      !TERMINAL_AGENT_STATES.has(other.state)
+    )
+    .map((other) => other.auditTabId);
+
+  return ensureAuditTab(targetUrl, agent.auditTabId, {
+    excludedTabIds: claimedTabIds,
+    reuseExisting: Boolean(agent.auditTabId)
+  });
 }
 
 async function sendChatMessage(tabId, message) {
@@ -153,7 +190,8 @@ async function reconcileAgentChatState(agent, pageUrl = "") {
     if (agent.state !== AGENT_STATES.GENERATING) {
       await patchAgent(agent.id, {
         state: AGENT_STATES.GENERATING,
-        conversationUrl
+        conversationUrl,
+        lastProgressAt: nowIso()
       });
     }
     return true;
@@ -220,6 +258,12 @@ async function createRun(taskId, mode) {
       lastResponse: "",
       lastDirective: null,
       lastBrowserObservation: null,
+      lastPromptAt: null,
+      lastProgressAt: timestamp,
+      lastWakeAt: null,
+      lastWakeReason: "",
+      wakeAttemptCount: 0,
+      recoveryExhausted: false,
       error: "",
       createdAt: timestamp,
       updatedAt: timestamp
@@ -244,7 +288,7 @@ async function launchAgent(agentId) {
   const task = agent ? state.tasks[agent.taskId] : null;
   if (!agent || !task) throw new Error("Task or agent no longer exists.");
 
-  await patchAgent(agentId, { state: AGENT_STATES.CREATING_TAB, error: "" });
+  await patchAgent(agentId, { state: AGENT_STATES.CREATING_TAB, error: "", lastProgressAt: nowIso() });
   const targetUrl = task.chatgpt_url && task.chatgpt_url.startsWith("https://chatgpt.com/")
     ? task.chatgpt_url
     : "https://chatgpt.com/";
@@ -253,7 +297,8 @@ async function launchAgent(agentId) {
   await patchAgent(agentId, {
     tabId: tab.id,
     conversationUrl: tab.url || targetUrl,
-    state: AGENT_STATES.WAITING_FOR_CHATGPT
+    state: AGENT_STATES.WAITING_FOR_CHATGPT,
+    lastProgressAt: nowIso()
   });
 
   await focusBrowserTab(tab.id);
@@ -282,10 +327,7 @@ async function launchAgent(agentId) {
 
 export async function pumpQueue() {
   const state = await getState();
-
-  // Deliberately one browser-owning agent at a time. This prevents multiple
-  // audit conversations from fighting over the same authenticated app tab.
-  const limit = 1;
+  const limit = normalizeMaxConcurrentAgents(state.settings.maxConcurrentAgents);
   let available = limit - Object.values(state.agents).filter((agent) => ACTIVE_STATES.has(agent.state)).length;
   if (available <= 0) return;
 
@@ -348,7 +390,7 @@ export async function startTask(taskId, requestedMode, forceRestart = false) {
   }
 
   const state = await getState();
-  const mode = isAutonomousAudit(task)
+  const mode = isAutonomousBrowserTask(task)
     ? EXECUTION_MODES.AUTO
     : (Object.values(EXECUTION_MODES).includes(requestedMode) ? requestedMode : state.settings.defaultMode);
 
@@ -365,14 +407,19 @@ async function injectPrompt(agent, prompt) {
     return;
   }
 
-  await patchAgent(agent.id, { state: AGENT_STATES.INJECTING_PROMPT, error: "" });
+  await patchAgent(agent.id, {
+    state: AGENT_STATES.INJECTING_PROMPT,
+    error: "",
+    lastPromptAt: nowIso(),
+    lastProgressAt: nowIso()
+  });
   try {
     const response = await sendChatMessage(agent.tabId, {
       type: MESSAGE_TYPES.INJECT_PROMPT,
       prompt
     });
     if (!response?.ok) throw new Error(response?.error || "Prompt injection failed.");
-    await patchAgent(agent.id, { state: AGENT_STATES.SUBMITTED });
+    await patchAgent(agent.id, { state: AGENT_STATES.SUBMITTED, lastProgressAt: nowIso() });
   } catch (error) {
     await patchAgent(agent.id, { state: AGENT_STATES.ERROR, error: String(error?.message || error) });
     await pumpQueue();
@@ -387,7 +434,7 @@ async function attachObservation(agent, task, observation, stepNumber, actionRes
       base64: observation.screenshot,
       mimeType: "image/jpeg",
       filename,
-      sourceUrl: observation?.snapshot?.url || task.audit_target?.url || ""
+      sourceUrl: observation?.snapshot?.url || browserTargetUrl(task) || ""
     });
     if (!response?.ok) {
       throw new Error(response?.error || "Could not attach browser screenshot to ChatGPT.");
@@ -401,6 +448,7 @@ async function attachObservation(agent, task, observation, stepNumber, actionRes
 
   await patchAgent(agent.id, {
     browserStepCount: stepNumber,
+    lastProgressAt: nowIso(),
     lastBrowserObservation: {
       url: observation?.snapshot?.url || "",
       title: observation?.snapshot?.title || "",
@@ -412,7 +460,8 @@ async function attachObservation(agent, task, observation, stepNumber, actionRes
 }
 
 async function startAutonomousAudit(agent, task) {
-  const auditTab = await ensureAuditTab(task.audit_target.url, agent.auditTabId);
+  const targetUrl = browserTargetUrl(task);
+  const auditTab = await ensureAgentAuditTab(agent, targetUrl);
   await patchAgent(agent.id, { auditTabId: auditTab.id, state: AGENT_STATES.BROWSER_ACTING });
 
   if (isTutorialTask(task)) await focusBrowserTab(auditTab.id);
@@ -438,7 +487,7 @@ export async function handlePageReady(tabId, pageUrl) {
   if (!agent || TERMINAL_AGENT_STATES.has(agent.state) || agent.state === AGENT_STATES.CANCELLED) return;
 
   const conversationUrl = pageUrl || agent.conversationUrl;
-  await patchAgent(agent.id, { conversationUrl });
+  await patchAgent(agent.id, { conversationUrl, lastProgressAt: nowIso() });
   await patchTask(agent.taskId, { chatgpt_url: conversationUrl });
 
   if (RECOVERABLE_CHAT_STATES.has(agent.state)) {
@@ -453,7 +502,7 @@ export async function handlePageReady(tabId, pageUrl) {
 
   const task = await getTask(agent.taskId);
 
-  if (isAutonomousAudit(task)) {
+  if (isAutonomousBrowserTask(task)) {
     try {
       await startAutonomousAudit({ ...agent, tabId, conversationUrl }, task);
     } catch (error) {
@@ -470,8 +519,37 @@ export async function handlePageReady(tabId, pageUrl) {
 
 export async function markGenerating(tabId) {
   const agent = await getAgentByTabId(tabId);
-  if (!agent || agent.state === AGENT_STATES.PAUSED || TERMINAL_AGENT_STATES.has(agent.state)) return;
-  await patchAgent(agent.id, { state: AGENT_STATES.GENERATING });
+  if (!agent || [AGENT_STATES.PAUSED, AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED].includes(agent.state)) return;
+  await patchAgent(agent.id, { state: AGENT_STATES.GENERATING, lastProgressAt: nowIso() });
+}
+
+export async function enforceAgentLimit() {
+  const state = await getState();
+  const limit = normalizeMaxConcurrentAgents(state.settings.maxConcurrentAgents);
+  const active = Object.values(state.agents)
+    .filter((agent) => ACTIVE_STATES.has(agent.state))
+    .sort((left, right) => String(left.createdAt || "").localeCompare(String(right.createdAt || "")));
+
+  for (const agent of active.slice(limit)) {
+    if (agent.tabId && await tabExists(agent.tabId)) {
+      sendChatMessage(agent.tabId, { type: MESSAGE_TYPES.STOP_GENERATION }).catch(() => {});
+    }
+    await patchAgent(agent.id, { state: AGENT_STATES.PAUSED });
+  }
+}
+
+export async function handleChatError(tabId, errorText, pageUrl = "") {
+  const agent = await getAgentByTabId(tabId);
+  if (!agent || [AGENT_STATES.PAUSED, AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED].includes(agent.state)) return;
+
+  const message = String(errorText || "ChatGPT reported an unknown generation error.").trim().slice(0, 1000);
+  await patchAgent(agent.id, {
+    state: AGENT_STATES.ERROR,
+    error: `ChatGPT reported: ${message}`,
+    conversationUrl: pageUrl || agent.conversationUrl,
+    lastProgressAt: nowIso(),
+    recoveryExhausted: false
+  });
 }
 
 async function finishAgent(agent, directive) {
@@ -486,6 +564,11 @@ async function finishAgent(agent, directive) {
         ...task,
         status: "Done",
         next_action: directive.nextAction || task.next_action,
+        subtasks: (task.subtasks || []).map((subtask) => ({
+          ...subtask,
+          completed: true,
+          completedAt: subtask.completedAt || nowIso()
+        })),
         updatedAt: nowIso()
       };
     }
@@ -526,24 +609,26 @@ async function continueAutonomousAudit(agent, task, directive) {
     return;
   }
 
-  await patchAgent(agent.id, { state: AGENT_STATES.BROWSER_ACTING, error: "" });
+  await patchAgent(agent.id, { state: AGENT_STATES.BROWSER_ACTING, error: "", lastProgressAt: nowIso() });
 
   let actionResult;
   let auditTab;
   try {
-    auditTab = await ensureAuditTab(task.audit_target.url, current.auditTabId);
+    const targetUrl = browserTargetUrl(task);
+    auditTab = await ensureAgentAuditTab(current, targetUrl);
     await patchAgent(agent.id, { auditTabId: auditTab.id });
     if (isTutorialTask(task)) await focusBrowserTab(auditTab.id);
 
     actionResult = await executeBrowserAction(
       auditTab.id,
-      task.audit_target.url,
+      targetUrl,
       directive.browserAction,
       {
         visualMouse: state.settings.visualMouse !== false,
         agentLabel: isTutorialTask(task) ? "Guide" : "Agent",
         tutorialMode: isTutorialTask(task),
-        tutorialPace: task.tutorial?.pace || "guided"
+        tutorialPace: task.tutorial?.pace || "guided",
+        allowStateChanges: isInteractiveBrowserTask(task)
       }
     );
 
@@ -562,7 +647,7 @@ async function continueAutonomousAudit(agent, task, directive) {
   }
 
   try {
-    auditTab = auditTab || await ensureAuditTab(task.audit_target.url, current.auditTabId);
+    auditTab = auditTab || await ensureAgentAuditTab(current, browserTargetUrl(task));
     const observation = await observeAuditPage(auditTab.id, {
       visualMouse: state.settings.visualMouse !== false,
       agentLabel: isTutorialTask(task) ? "Guide" : "Agent"
@@ -586,7 +671,7 @@ async function continueAutonomousAudit(agent, task, directive) {
 
 export async function handleResponse(tabId, assistantText, pageUrl) {
   const agent = await getAgentByTabId(tabId);
-  if (!agent || agent.state === AGENT_STATES.PAUSED || TERMINAL_AGENT_STATES.has(agent.state)) return;
+  if (!agent || [AGENT_STATES.PAUSED, AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED].includes(agent.state)) return;
 
   const response = responseTail(assistantText);
   if (!response || response === responseTail(agent.lastResponse)) return;
@@ -596,17 +681,24 @@ export async function handleResponse(tabId, assistantText, pageUrl) {
     state: AGENT_STATES.EVALUATING,
     lastResponse: response,
     lastDirective: directive,
-    conversationUrl: pageUrl || agent.conversationUrl
+    conversationUrl: pageUrl || agent.conversationUrl,
+    lastProgressAt: nowIso(),
+    lastWakeAt: null,
+    lastWakeReason: "",
+    wakeAttemptCount: 0,
+    recoveryExhausted: false,
+    error: ""
   });
 
   await patchTask(agent.taskId, {
     chatgpt_url: pageUrl || agent.conversationUrl,
     ...(directive.nextAction ? { next_action: directive.nextAction } : {})
   });
+  await recordCompletedSubtasks(agent.taskId, directive.completedSubtaskIds);
 
   const task = await getTask(agent.taskId);
 
-  if (isAutonomousAudit(task)) {
+  if (isAutonomousBrowserTask(task)) {
     if (directive.status === "COMPLETE") {
       await finishAgent(agent, directive);
       return;
@@ -663,6 +755,95 @@ export async function handleResponse(tabId, assistantText, pageUrl) {
   });
 }
 
+function buildWakeUpPrompt(task, agent, reason) {
+  const recoveryHeader = `Continue the current task from where you stopped. Automatic recovery detected ${reason}. Do not repeat completed work. Return the required machine-readable status lines.`;
+  const taskPrompt = agent.lastPromptAt || agent.lastResponse
+    ? buildContinuationPrompt(task, Math.max(1, Number(agent.continuationCount) || 1))
+    : buildInitialPrompt(task);
+  return `${recoveryHeader}\n\n${taskPrompt}`;
+}
+
+export async function runAgentWatchdog(nowMs = Date.now()) {
+  const snapshot = await getState();
+  const candidates = Object.values(snapshot.agents)
+    .sort((left, right) => String(left.updatedAt || "").localeCompare(String(right.updatedAt || "")));
+
+  for (const candidate of candidates) {
+    const initialDecision = getAgentRecoveryDecision(candidate, nowMs);
+    if (!initialDecision) continue;
+
+    const currentState = await getState();
+    const agent = currentState.agents[candidate.id];
+    const decision = getAgentRecoveryDecision(agent, nowMs);
+    if (!agent || !decision) continue;
+
+    if (!agent.tabId || !(await tabExists(agent.tabId))) {
+      await patchAgent(agent.id, {
+        state: AGENT_STATES.ERROR,
+        recoveryExhausted: true,
+        error: "Automatic recovery could not continue because the ChatGPT tab is closed. Start the task again."
+      });
+      await pumpQueue();
+      continue;
+    }
+
+    const chatState = await getChatState(agent);
+    const latest = String(chatState?.latestAssistantText || "").trim();
+    if (latest && responseTail(latest) !== responseTail(agent.lastResponse)) {
+      const directive = parseAgentDirective(latest);
+      if (directive.status) {
+        await handleResponse(agent.tabId, latest, chatState?.url || agent.conversationUrl);
+        continue;
+      }
+    }
+
+    if (decision.exhausted) {
+      await patchAgent(agent.id, {
+        state: AGENT_STATES.ERROR,
+        recoveryExhausted: true,
+        error: `Automatic recovery stopped after ${MAX_AGENT_WAKE_ATTEMPTS} wake-up attempts. Last issue: ${decision.reason}.`
+      });
+      await pumpQueue();
+      continue;
+    }
+
+    if (agent.state === AGENT_STATES.ERROR) {
+      const latestState = await getState();
+      const activeCount = Object.values(latestState.agents)
+        .filter((item) => ACTIVE_STATES.has(item.state)).length;
+      const limit = normalizeMaxConcurrentAgents(latestState.settings.maxConcurrentAgents);
+      if (activeCount >= limit) continue;
+    }
+
+    if (chatState?.generating) {
+      try {
+        await sendChatMessage(agent.tabId, { type: MESSAGE_TYPES.STOP_GENERATION });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      } catch {
+        // Prompt injection below will retry/reinject the content script if needed.
+      }
+    }
+
+    const task = currentState.tasks[agent.taskId];
+    if (!task) continue;
+
+    const wakeAttemptCount = decision.attempts + 1;
+    const wakeAt = new Date(nowMs).toISOString();
+    await patchAgent(agent.id, {
+      state: AGENT_STATES.READY,
+      wakeAttemptCount,
+      lastWakeAt: wakeAt,
+      lastWakeReason: decision.reason,
+      recoveryExhausted: false,
+      error: ""
+    });
+    await injectPrompt(
+      { ...agent, state: AGENT_STATES.READY, wakeAttemptCount, lastWakeAt: wakeAt },
+      buildWakeUpPrompt(task, agent, decision.reason)
+    );
+  }
+}
+
 export async function continueTask(taskId) {
   const task = await getTask(taskId);
   if (!task) throw new Error("Task not found.");
@@ -671,20 +852,36 @@ export async function continueTask(taskId) {
     return startTask(taskId, EXECUTION_MODES.AUTO);
   }
 
-  if (isAutonomousAudit(task)) {
+  if (isAutonomousBrowserTask(task)) {
     const prompt = isTutorialTask(task)
       ? `Resume the read-only tutorial walkthrough from the current browser state. Move in small visible teaching steps and emit exactly one safe BROWSER_ACTION.`
-      : `Resume the autonomous read-only browser audit from the current state. Use the browser yourself and emit exactly one safe BROWSER_ACTION.`;
+      : isInteractiveBrowserTask(task)
+        ? `Resume the authorized interactive browser automation from the current state. Perform only the actions explicitly stated in the task and emit exactly one BROWSER_ACTION.`
+        : `Resume the autonomous read-only browser audit from the current state. Use the browser yourself and emit exactly one safe BROWSER_ACTION.`;
     await patchAgent(agent.id, {
       state: AGENT_STATES.READY,
-      error: ""
+      error: "",
+      lastProgressAt: nowIso(),
+      lastWakeAt: null,
+      lastWakeReason: "",
+      wakeAttemptCount: 0,
+      recoveryExhausted: false
     });
     await injectPrompt(agent, prompt);
     return (await getState()).agents[agent.id];
   }
 
   const continuationCount = (agent.continuationCount || 0) + 1;
-  await patchAgent(agent.id, { continuationCount, state: AGENT_STATES.READY, error: "" });
+  await patchAgent(agent.id, {
+    continuationCount,
+    state: AGENT_STATES.READY,
+    error: "",
+    lastProgressAt: nowIso(),
+    lastWakeAt: null,
+    lastWakeReason: "",
+    wakeAttemptCount: 0,
+    recoveryExhausted: false
+  });
   await injectPrompt({ ...agent, continuationCount }, buildContinuationPrompt(task, continuationCount));
   return (await getState()).agents[agent.id];
 }
@@ -784,7 +981,10 @@ export async function pauseAll() {
 export async function resumeAll() {
   const state = await getState();
   const paused = Object.values(state.agents).filter((agent) => agent.state === AGENT_STATES.PAUSED);
-  for (const agent of paused) {
+  const limit = normalizeMaxConcurrentAgents(state.settings.maxConcurrentAgents);
+  const activeCount = Object.values(state.agents).filter((agent) => ACTIVE_STATES.has(agent.state)).length;
+  const resumable = paused.slice(0, Math.max(0, limit - activeCount));
+  for (const agent of resumable) {
     if (agent.tabId && await tabExists(agent.tabId)) {
       await patchAgent(agent.id, { state: AGENT_STATES.READY, error: "" });
     } else {

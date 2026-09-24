@@ -26,9 +26,17 @@ import {
   handlePageReady,
   handleResponse,
   markGenerating,
+  handleChatError,
   handleTabRemoved,
+  enforceAgentLimit,
   pumpQueue
 } from "./task-runner.js";
+
+// Runs whenever the service worker loads, including a manual extension reload.
+// This prevents runs saved under an older multi-agent build from all resuming.
+const startupSafety = initializeState()
+  .then(() => enforceAgentLimit())
+  .catch((error) => console.error("Could not enforce the single-agent safety limit.", error));
 
 async function ensureChatContentScript(tabId) {
   try {
@@ -80,14 +88,14 @@ async function rehydrateChatTabs() {
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
-  await initializeState();
+  await startupSafety;
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   await rehydrateChatTabs();
   await pumpQueue();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  await initializeState();
+  await startupSafety;
   await rehydrateChatTabs();
   await pumpQueue();
 });
@@ -230,7 +238,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
             }
           }
-          sendResponse({ ok: true, state });
+          if (Object.prototype.hasOwnProperty.call(message.patch || {}, "maxConcurrentAgents")) {
+            await pumpQueue();
+          }
+          sendResponse({ ok: true, state: await getState() });
           break;
         }
         case MESSAGE_TYPES.PAUSE_ALL:
@@ -247,6 +258,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case MESSAGE_TYPES.CHATGPT_GENERATING:
           if (sender.tab?.id) await markGenerating(sender.tab.id);
+          sendResponse({ ok: true });
+          break;
+        case MESSAGE_TYPES.CHATGPT_ERROR:
+          if (sender.tab?.id) {
+            await handleChatError(sender.tab.id, message.error || "", message.url || sender.tab.url);
+          }
           sendResponse({ ok: true });
           break;
         case MESSAGE_TYPES.CHATGPT_RESPONSE:

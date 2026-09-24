@@ -20,9 +20,10 @@ async function waitForTabComplete(tabId, timeoutMs = 20000) {
   return chrome.tabs.get(tabId);
 }
 
-async function findTargetTab(targetUrl) {
+async function findTargetTab(targetUrl, excludedTabIds = new Set()) {
   const tabs = await chrome.tabs.query({});
   const matches = tabs.filter((tab) => {
+    if (excludedTabIds.has(tab.id)) return false;
     const current = safeUrl(tab.url);
     return current && current.origin === targetUrl.origin;
   });
@@ -32,11 +33,12 @@ async function findTargetTab(targetUrl) {
     null;
 }
 
-export async function ensureAuditTab(targetUrlValue, preferredTabId = null) {
+export async function ensureAuditTab(targetUrlValue, preferredTabId = null, options = {}) {
   const targetUrl = safeUrl(targetUrlValue);
   if (!targetUrl) throw new Error("Invalid audit target URL.");
+  const excludedTabIds = new Set(options.excludedTabIds || []);
 
-  if (preferredTabId) {
+  if (preferredTabId && !excludedTabIds.has(preferredTabId)) {
     try {
       const preferred = await chrome.tabs.get(preferredTabId);
       const current = safeUrl(preferred.url);
@@ -46,7 +48,9 @@ export async function ensureAuditTab(targetUrlValue, preferredTabId = null) {
     }
   }
 
-  const existing = await findTargetTab(targetUrl);
+  const existing = options.reuseExisting === false
+    ? null
+    : await findTargetTab(targetUrl, excludedTabIds);
   if (existing) return existing;
 
   const created = await chrome.tabs.create({ url: targetUrl.href, active: false });
@@ -300,7 +304,7 @@ const SNAPSHOT_EXPRESSION = `(() => {
   };
   const clean = (value) => String(value || "").replace(/\\s+/g, " ").trim();
   const elements = Array.from(document.querySelectorAll(
-    "a,button,[role='button'],[role='link'],summary,input,select,textarea,[tabindex]"
+    "a,button,[role='button'],[role='link'],[role='textbox'],[contenteditable='true'],summary,input,select,textarea,[tabindex]"
   ))
     .filter(visible)
     .slice(0, 160)
@@ -380,13 +384,13 @@ function assertSafeClickLabel(label) {
   }
 }
 
-function assertSafeNavigation(url, allowedOrigin) {
+function assertSafeNavigation(url, allowedOrigin, allowStateChanges = false) {
   const parsed = safeUrl(url);
   if (!parsed) throw new Error("Invalid navigation URL.");
   if (parsed.origin !== allowedOrigin) {
     throw new Error(`Navigation outside audit origin blocked: ${parsed.origin}`);
   }
-  if (BLOCKED_ACTION_WORDS.test(parsed.pathname + " " + parsed.search)) {
+  if (!allowStateChanges && BLOCKED_ACTION_WORDS.test(parsed.pathname + " " + parsed.search)) {
     throw new Error("Navigation URL looks state-changing and was blocked by read-only audit policy.");
   }
   return parsed;
@@ -398,11 +402,12 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
   const visualMouse = options.visualMouse !== false;
   const agentLabel = options.agentLabel || "Agent";
   const tutorialMode = options.tutorialMode === true;
+  const allowStateChanges = options.allowStateChanges === true;
   const tutorialDelay = tutorialPauseMs(options.tutorialPace);
   if (!targetUrl) throw new Error("Invalid audit target URL.");
 
   if (action.type === "wait") {
-    const ms = Math.min(5000, Math.max(250, Number(action.ms) || 1000));
+    const ms = Math.min(15000, Math.max(250, Number(action.ms) || 1000));
     await new Promise((resolve) => setTimeout(resolve, ms));
     return { ok: true, type: "wait", ms };
   }
@@ -422,7 +427,7 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
 
     if (action.type === "navigate") {
       const destination = action.url
-        ? assertSafeNavigation(new URL(action.url, currentUrl.href).href, targetUrl.origin)
+        ? assertSafeNavigation(new URL(action.url, currentUrl.href).href, targetUrl.origin, allowStateChanges)
         : null;
       if (!destination) throw new Error("Navigate action requires url.");
       if (tutorialMode) {
@@ -441,7 +446,7 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
       const nextIndex = Math.max(0, (history?.currentIndex || 0) - 1);
       const entry = history?.entries?.[nextIndex];
       if (!entry) return { ok: true, type: "back", changed: false };
-      const destination = assertSafeNavigation(entry.url, targetUrl.origin);
+      const destination = assertSafeNavigation(entry.url, targetUrl.origin, allowStateChanges);
       if (tutorialMode) {
         await showTutorialCaption(debuggee, "Go back");
         await sleep(tutorialDelay);
@@ -535,6 +540,93 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
       return { ok: true, type: "upload_sample_csv", ...result };
     }
 
+    if (action.type === "type_text") {
+      if (!allowStateChanges) {
+        throw new Error("Typing is blocked for read-only browser tasks.");
+      }
+      const text = String(action.text ?? "");
+      if (!text) throw new Error("type_text requires non-empty text.");
+      const selector = String(action.selector || "").trim();
+      const target = await evaluate(debuggee, `(() => {
+        const selector = ${JSON.stringify(selector)};
+        const visible = (el) => {
+          const style = getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+        };
+        const editable = (el) => Boolean(
+          el && !el.disabled && el.getAttribute("aria-disabled") !== "true" &&
+          (el.matches("textarea,input:not([type='hidden']):not([type='button']):not([type='submit']),[contenteditable='true']") || el.isContentEditable)
+        );
+        let el = selector ? document.querySelector(selector) : null;
+        if (!el) {
+          const candidates = Array.from(document.querySelectorAll(
+            "[contenteditable='true'][role='textbox'],[contenteditable='true'],textarea,input:not([type='hidden']):not([type='button']):not([type='submit'])"
+          )).filter((item) => visible(item) && editable(item));
+          candidates.sort((a, b) => {
+            const ar = a.getBoundingClientRect();
+            const br = b.getBoundingClientRect();
+            return (br.bottom - ar.bottom) || (br.width - ar.width);
+          });
+          el = candidates[0] || null;
+        }
+        if (!el) return { found: false };
+        if (!visible(el)) return { found: true, visible: false };
+        if (!editable(el)) return { found: true, visible: true, editable: false };
+        el.scrollIntoView({ block: "center", inline: "center" });
+        const rect = el.getBoundingClientRect();
+        return {
+          found: true,
+          visible: true,
+          editable: true,
+          tag: el.tagName.toLowerCase(),
+          label: String(el.getAttribute("aria-label") || el.getAttribute("data-tab") || el.getAttribute("placeholder") || "").trim(),
+          x: rect.left + (rect.width / 2),
+          y: rect.top + (rect.height / 2)
+        };
+      })()`);
+      if (!target?.found) throw new Error(selector ? `No editable field found for selector: ${selector}` : "No visible editable message field was found.");
+      if (!target.visible) throw new Error("The selected editable field is hidden.");
+      if (!target.editable) throw new Error("The selected element is not editable.");
+      await dispatchPointerClick(debuggee, target.x, target.y, { visible: visualMouse, label: agentLabel });
+      await chrome.debugger.sendCommand(debuggee, "Input.insertText", { text });
+      return { ok: true, type: "type_text", characters: text.length, tag: target.tag, label: target.label };
+    }
+
+    if (action.type === "press_key") {
+      if (!allowStateChanges) {
+        throw new Error("Keyboard input is blocked for read-only browser tasks.");
+      }
+      const requested = String(action.key || "").trim();
+      const keys = {
+        Enter: { code: "Enter", keyCode: 13 },
+        Tab: { code: "Tab", keyCode: 9 },
+        Escape: { code: "Escape", keyCode: 27 },
+        Backspace: { code: "Backspace", keyCode: 8 },
+        ArrowUp: { code: "ArrowUp", keyCode: 38 },
+        ArrowDown: { code: "ArrowDown", keyCode: 40 },
+        ArrowLeft: { code: "ArrowLeft", keyCode: 37 },
+        ArrowRight: { code: "ArrowRight", keyCode: 39 }
+      };
+      const spec = keys[requested];
+      if (!spec) throw new Error(`Unsupported key: ${requested}`);
+      await chrome.debugger.sendCommand(debuggee, "Input.dispatchKeyEvent", {
+        type: "rawKeyDown",
+        key: requested,
+        code: spec.code,
+        windowsVirtualKeyCode: spec.keyCode,
+        nativeVirtualKeyCode: spec.keyCode
+      });
+      await chrome.debugger.sendCommand(debuggee, "Input.dispatchKeyEvent", {
+        type: "keyUp",
+        key: requested,
+        code: spec.code,
+        windowsVirtualKeyCode: spec.keyCode,
+        nativeVirtualKeyCode: spec.keyCode
+      });
+      return { ok: true, type: "press_key", key: requested };
+    }
+
     if (action.type === "click_point") {
       const viewport = await evaluate(debuggee, `(() => ({
         width: window.innerWidth,
@@ -562,7 +654,7 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
         const raw = document.elementFromPoint(x, y);
         if (!raw) return { found: false };
 
-        const clickable = raw.closest("a,button,[role='button'],[role='link'],summary,input,select,textarea,[tabindex]") || raw;
+        const clickable = raw.closest("a,button,[role='button'],[role='link'],[role='textbox'],[contenteditable='true'],summary,input,select,textarea,[tabindex]") || raw;
         const style = getComputedStyle(clickable);
         const rect = clickable.getBoundingClientRect();
         const label = clean(
@@ -575,7 +667,7 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
         );
         const blocked = /\\b(save|submit|delete|remove|approve|reject|pay|purchase|confirm|create|invite|send|reset|activate|deactivate|cancel booking|book now|reserve|favorite|unfavorite|refund|void)\\b/i;
         const interactive = Boolean(
-          clickable.matches("a,button,[role='button'],[role='link'],summary,input,select,textarea,[tabindex]")
+          clickable.matches("a,button,[role='button'],[role='link'],[role='textbox'],[contenteditable='true'],summary,input,select,textarea,[tabindex]")
         );
         const visible = style.visibility !== "hidden" &&
           style.display !== "none" &&
@@ -600,7 +692,7 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
       if (!target.visible) throw new Error("The screenshot point resolves to a hidden element.");
       if (!target.interactive) throw new Error(`Screenshot point is not on an interactive control: "${target.label}".`);
       if (target.disabled) throw new Error(`Screenshot point resolves to a disabled control: "${target.label}".`);
-      if (target.blocked) throw new Error(`Read-only audit blocked state-changing control: "${target.label}".`);
+      if (target.blocked && !allowStateChanges) throw new Error(`Read-only audit blocked state-changing control: "${target.label}".`);
 
       if (tutorialMode) {
         await showTutorialCaption(debuggee, `Click ${target.label || "the highlighted control"}`);
@@ -629,7 +721,7 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
     if (action.type === "click_text") {
       const text = String(action.text || "").trim();
       if (!text) throw new Error("click_text requires text.");
-      assertSafeClickLabel(text);
+      if (!allowStateChanges) assertSafeClickLabel(text);
       const result = await evaluate(debuggee, `(() => {
         const wanted = ${JSON.stringify(text)}.toLowerCase();
         const blocked = /\\b(save|submit|delete|remove|approve|reject|pay|purchase|confirm|create|invite|send|reset|activate|deactivate|cancel booking|book now|reserve|favorite|unfavorite|refund|void)\\b/i;
@@ -648,12 +740,11 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
         }).filter(item => item.score > 0).sort((a,b) => b.score - a.score);
         const item = scored[0];
         if (!item) return { found: false };
-        if (blocked.test(item.label)) return { found: true, blocked: true, label: item.label };
         item.el.scrollIntoView({ block: "center", inline: "center" });
         const rect = item.el.getBoundingClientRect();
         return {
           found: true,
-          blocked: false,
+          blocked: blocked.test(item.label),
           label: item.label,
           tag: item.el.tagName.toLowerCase(),
           x: rect.left + (rect.width / 2),
@@ -661,7 +752,7 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
         };
       })()`);
       if (!result?.found) throw new Error(`No visible clickable element found for text: ${text}`);
-      if (result.blocked) throw new Error(`Read-only audit blocked state-changing control: "${result.label}".`);
+      if (result.blocked && !allowStateChanges) throw new Error(`Read-only audit blocked state-changing control: "${result.label}".`);
       if (tutorialMode) {
         await showTutorialCaption(debuggee, `Click ${result.label || text}`);
         await sleep(tutorialDelay);
@@ -682,12 +773,11 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
         const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return { found: false };
         const label = String(el.innerText || el.value || el.getAttribute("aria-label") || el.title || "").replace(/\\s+/g, " ").trim();
-        if (blocked.test(label)) return { found: true, blocked: true, label };
         el.scrollIntoView({ block: "center", inline: "center" });
         const rect = el.getBoundingClientRect();
         return {
           found: true,
-          blocked: false,
+          blocked: blocked.test(label),
           label,
           tag: el.tagName.toLowerCase(),
           x: rect.left + (rect.width / 2),
@@ -695,7 +785,7 @@ export async function executeBrowserAction(tabId, targetUrlValue, rawAction, opt
         };
       })()`);
       if (!result?.found) throw new Error(`No element found for selector: ${selector}`);
-      if (result.blocked) throw new Error(`Read-only audit blocked state-changing control: "${result.label}".`);
+      if (result.blocked && !allowStateChanges) throw new Error(`Read-only audit blocked state-changing control: "${result.label}".`);
       if (tutorialMode) {
         await showTutorialCaption(debuggee, `Click ${result.label || "the highlighted control"}`);
         await sleep(tutorialDelay);

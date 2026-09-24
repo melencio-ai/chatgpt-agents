@@ -56,6 +56,48 @@ function normalizeAuditTarget(raw, projectDefaults) {
   };
 }
 
+function explicitBrowserAutomation(raw, projectDefaults) {
+  const text = [
+    raw.task_mode,
+    raw.mode,
+    raw.browser_mode,
+    projectDefaults.task_mode,
+    projectDefaults.mode,
+    projectDefaults.browser_mode,
+    raw.title,
+    raw.next_action
+  ].map((value) => String(value || "")).join(" ");
+  return /\bbrowser[ _-]+automation\b/i.test(text);
+}
+
+function firstTaskUrl(raw) {
+  const values = [
+    raw.next_action,
+    ...(Array.isArray(raw.subtasks) ? raw.subtasks.flatMap((item) => [
+      typeof item === "string" ? item : item?.title,
+      ...(Array.isArray(item?.instructions) ? item.instructions : [])
+    ]) : [])
+  ];
+  for (const value of values) {
+    const match = String(value || "").match(/https?:\/\/[^\s<>"']+/i);
+    if (match) return match[0].replace(/[),.;]+$/, "");
+  }
+  return "";
+}
+
+function normalizeBrowserTarget(raw, projectDefaults, automationDeclared) {
+  const target = raw.browser_target ?? projectDefaults.browser_target;
+  if (target) {
+    if (typeof target === "string") return { url: target.trim() };
+    if (typeof target !== "object" || Array.isArray(target)) {
+      throw new Error("browser_target must be a URL string or object.");
+    }
+    return { ...target, url: String(target.url || "").trim() };
+  }
+  const inferredUrl = automationDeclared ? firstTaskUrl(raw) : "";
+  return inferredUrl ? { url: inferredUrl } : null;
+}
+
 function normalizeTutorial(raw, projectDefaults) {
   const mode = String(raw.task_mode || raw.mode || projectDefaults.task_mode || projectDefaults.mode || "").trim().toLowerCase();
   const value = raw.tutorial ?? projectDefaults.tutorial;
@@ -89,6 +131,7 @@ function normalizeTask(raw, index = 0, projectDefaults = {}) {
   if (!title) throw new Error(`Task ${index + 1} is missing a title.`);
 
   const id = stableTaskId(raw, index);
+  const automationDeclared = explicitBrowserAutomation(raw, projectDefaults);
   const subtasks = Array.isArray(raw.subtasks)
     ? raw.subtasks.map((item, subIndex) => normalizeSubtask(item, id, subIndex))
     : [];
@@ -119,7 +162,9 @@ function normalizeTask(raw, index = 0, projectDefaults = {}) {
     chatgpt_url: raw.chatgpt_url || "",
     confidence: raw.confidence ?? null,
     rationale: raw.rationale || "",
-    task_mode: raw.task_mode || raw.mode || projectDefaults.task_mode || projectDefaults.mode || "",
+    task_mode: raw.task_mode || raw.mode || projectDefaults.task_mode || projectDefaults.mode || (automationDeclared ? "browser_automation" : ""),
+    browser_mode: raw.browser_mode || projectDefaults.browser_mode || (automationDeclared ? "interactive" : ""),
+    browser_target: normalizeBrowserTarget(raw, projectDefaults, automationDeclared),
     tutorial: normalizeTutorial(raw, projectDefaults),
     audit_mode: raw.audit_mode || projectDefaults.audit_mode || "",
     audit_target: normalizeAuditTarget(raw, projectDefaults),

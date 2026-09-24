@@ -16,8 +16,8 @@ const task = {
   waiting_on: "",
   next_action: "Implement loader",
   subtasks: [
-    { title: "Architecture", completed: true },
-    { title: "JSON loader", completed: false }
+    { id: "architecture", title: "Architecture", completed: true },
+    { id: "json-loader", title: "JSON loader", completed: false }
   ]
 };
 
@@ -25,11 +25,16 @@ test("initial prompt contains task context and machine-readable footer", () => {
   const prompt = buildInitialPrompt(task);
   assert.match(prompt, /Build extension/);
   assert.match(prompt, /\[x\] Architecture/);
+  assert.match(prompt, /ID: json-loader/);
+  assert.match(prompt, /COMPLETED_SUBTASKS:/);
   assert.match(prompt, /AGENT_STATUS:/);
 });
 
 test("continuation prompt includes continuation number", () => {
-  assert.match(buildContinuationPrompt(task, 3), /continuation 3/i);
+  const prompt = buildContinuationPrompt(task, 3);
+  assert.match(prompt, /continuation 3/i);
+  assert.match(prompt, /\[x\] Architecture/);
+  assert.match(prompt, /COMPLETED_SUBTASKS:/);
 });
 
 test("audit prompt explains autonomous read-only browser actions", () => {
@@ -76,7 +81,8 @@ test("parses browser action directive", () => {
     {
       status: "CONTINUE",
       nextAction: "Open locations",
-      browserAction: { type: "click_text", text: "Locations" }
+      browserAction: { type: "click_text", text: "Locations" },
+      completedSubtaskIds: []
     }
   );
 });
@@ -87,7 +93,8 @@ test("parses non-browser directive with undefined browser action", () => {
     {
       status: "CONTINUE",
       nextAction: "Test it",
-      browserAction: undefined
+      browserAction: undefined,
+      completedSubtaskIds: []
     }
   );
 });
@@ -129,7 +136,8 @@ test("parses directive lines with indentation and list markers", () => {
     {
       status: "CONTINUE",
       nextAction: "Recheck Railway staging",
-      browserAction: undefined
+      browserAction: undefined,
+      completedSubtaskIds: []
     }
   );
 });
@@ -142,8 +150,40 @@ test("uses the last machine-readable directive block in a response", () => {
     {
       status: "CONTINUE",
       nextAction: "Continue deployment check",
-      browserAction: undefined
+      browserAction: undefined,
+      completedSubtaskIds: []
     }
+  );
+});
+
+test("interactive browser automation exposes typing and key actions", () => {
+  const browserTask = {
+    ...task,
+    task_mode: "browser_automation",
+    browser_mode: "interactive",
+    browser_target: { url: "https://web.whatsapp.com/send?phone=15555550199" }
+  };
+  const prompt = buildInitialPrompt(browserTask);
+  assert.match(prompt, /INTERACTIVE BROWSER AUTOMATION/);
+  assert.match(prompt, /"type":"type_text"/);
+  assert.match(prompt, /"type":"press_key"/);
+  assert.match(prompt, /only the state-changing actions stated in the task/i);
+  assert.doesNotMatch(prompt, /Do not request typing/);
+});
+
+test("parses and deduplicates completed subtask IDs", () => {
+  assert.deepEqual(
+    parseAgentDirective(
+      'Done.\nAGENT_STATUS: CONTINUE\nNEXT_ACTION: Start stage 2\nCOMPLETED_SUBTASKS: ["stage-0", "stage-1", "stage-1"]\n'
+    ).completedSubtaskIds,
+    ["stage-0", "stage-1"]
+  );
+});
+
+test("ignores malformed completed subtask directives", () => {
+  assert.deepEqual(
+    parseAgentDirective("AGENT_STATUS: CONTINUE\nCOMPLETED_SUBTASKS: stage-0\n").completedSubtaskIds,
+    []
   );
 });
 

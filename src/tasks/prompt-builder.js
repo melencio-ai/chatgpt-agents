@@ -6,7 +6,7 @@ function renderSubtasks(task) {
   const subtasks = task.subtasks || [];
   if (!subtasks.length) return "- No subtasks provided.";
   return subtasks
-    .map((item) => `${item.completed ? "[x]" : "[ ]"} ${item.title}`)
+    .map((item) => `${item.completed ? "[x]" : "[ ]"} ${item.title}${item.id ? ` (ID: ${item.id})` : ""}`)
     .join("\n");
 }
 
@@ -15,20 +15,17 @@ function renderList(items, fallback = "- None specified.") {
   return items.map((item) => `- ${item}`).join("\n");
 }
 
-function isAutonomousAudit(task) {
-  return Boolean(task.audit_target?.url && String(task.audit_mode || "").toLowerCase().includes("read"));
-}
-
 function isTutorialTask(task) {
   return Boolean(task?.tutorial?.enabled);
 }
 
 function renderAuditContext(task) {
-  if (!task.audit_mode && !task.audit_target && !task.audit_focus?.length) return "";
+  if (!task.audit_mode && !task.audit_target && !task.browser_target && !task.audit_focus?.length) return "";
 
-  const readOnly = String(task.audit_mode || "").toLowerCase().includes("read");
+  const readOnly = isReadOnlyBrowserTask(task);
+  const interactive = isInteractiveBrowserTask(task);
   const tutorial = isTutorialTask(task);
-  const automation = isAutonomousAudit(task)
+  const automation = isAutonomousBrowserTask(task)
     ? `
 
 BROWSER AUTOMATION:
@@ -43,6 +40,8 @@ BROWSER_ACTION: {"type":"navigate","url":"/locations/"}
 BROWSER_ACTION: {"type":"scroll","deltaY":800}
 BROWSER_ACTION: {"type":"back"}
 BROWSER_ACTION: {"type":"wait","ms":1000}
+${interactive ? `BROWSER_ACTION: {"type":"type_text","text":"Exact text to type"}
+BROWSER_ACTION: {"type":"press_key","key":"Enter"}` : ""}
 ${tutorial ? `BROWSER_ACTION: {"type":"upload_sample_csv","selector":"input[type='file']"}\nThe upload_sample_csv action is tutorial-only and uses generated dummy contacts, never real customer data.` : ""}
 
 SCREENSHOT AWARENESS:
@@ -51,9 +50,9 @@ SCREENSHOT AWARENESS:
 - Use the structured page text and detected elements as supporting evidence, not as a substitute for looking at the screenshot.
 - When a visible control is clear in the screenshot but text/selector matching is unreliable, use click_point.
 - click_point coordinates are normalized to the visible viewport: xPct=0 is the left edge, xPct=1 is the right edge, yPct=0 is the top edge, yPct=1 is the bottom edge.
-- The extension verifies the actual DOM control under a click_point and refuses hidden, disabled, non-interactive, or obvious state-changing targets.
+- The extension verifies the actual DOM control under a click_point and refuses hidden, disabled, or non-interactive targets.${readOnly ? " It also refuses obvious state-changing targets." : ""}
 
-Do not request typing, form submission, payment, saving, deletion, creation, activation/deactivation, approval/rejection, booking, favoriting, inviting, email sending, password reset, refunding, or any other state-changing action. The extension also blocks obvious state-changing controls.
+${readOnly ? "Do not request typing, form submission, payment, saving, deletion, creation, activation/deactivation, approval/rejection, booking, favoriting, inviting, email sending, password reset, refunding, or any other state-changing action. The extension also blocks obvious state-changing controls." : "This is an explicitly authorized interactive browser task. Perform only the state-changing actions stated in the task. Type text exactly as supplied, never infer additional recipients or content, and visually verify the result before reporting completion."}
 
 Use the browser yourself. Do not ask the user to manually navigate or capture screenshots unless authentication, CAPTCHA, an external origin, or another genuinely human-only blocker prevents progress.
 
@@ -70,12 +69,12 @@ If the extension reports a blocked/failed browser action, choose a different saf
   return `
 
 MODE:
-${tutorial ? "TUTORIAL, READ-ONLY. Demonstrate the process clearly without committing irreversible actions or changing real customer data." : (readOnly ? "READ-ONLY. Do not make, submit, save, delete, publish, configure, or otherwise execute changes in the audited application. Recommendations are allowed; implementation is not." : task.audit_mode || "Audit only.")}
+${tutorial ? "TUTORIAL, READ-ONLY. Demonstrate the process clearly without committing irreversible actions or changing real customer data." : (readOnly ? "READ-ONLY. Do not make, submit, save, delete, publish, configure, or otherwise execute changes in the audited application. Recommendations are allowed; implementation is not." : (interactive ? "INTERACTIVE BROWSER AUTOMATION. Execute only the actions explicitly authorized by this task." : task.audit_mode || "Audit only."))}
 
 ${tutorial ? `TUTORIAL GUIDANCE:\n- Work in small visible steps suitable for an OBS screen recording.\n- Prefer clicking visible labels over direct URL jumps when that teaches the viewer where controls are.\n- Pause on important screens before moving on.\n- Do not race through multiple conceptual steps.\n- Stop before the final submit/import/send/save action unless the task explicitly authorizes it.\n- The extension handles navigation, the visible pointer, screenshots, and tutorial captions only. Recording is external.` : ""}
 
 Audit target:
-${task.audit_target?.url || "Not specified"}
+${browserTargetUrl(task) || "Not specified"}
 
 Audit focus:
 ${renderList(task.audit_focus)}
@@ -90,20 +89,24 @@ Base findings only on evidence you can actually inspect and on clearly stated ta
 }
 
 function renderFooter(task) {
-  if (isAutonomousAudit(task)) {
-    return `At the very end of your response, include exactly these three machine-readable lines:
+  const completedSubtasksLine = (task.subtasks || []).length
+    ? "\nCOMPLETED_SUBTASKS: <JSON array of subtask IDs completed so far, or []>"
+    : "";
+
+  if (isAutonomousBrowserTask(task)) {
+    return `At the very end of your response, include these machine-readable lines:
 BROWSER_ACTION: <one JSON object, or null when complete/blocked>
 AGENT_STATUS: CONTINUE | COMPLETE | BLOCKED
-NEXT_ACTION: <short description of what you are doing next or the blocker>
+NEXT_ACTION: <short description of what you are doing next or the blocker>${completedSubtasksLine}
 
-Choose only one AGENT_STATUS value.`;
+Choose only one AGENT_STATUS value. Only report a subtask as completed after all of its work and validation are finished. Keep previously completed subtask IDs in the array.`;
   }
 
-  return `At the very end of your response, include exactly these two machine-readable lines:
+  return `At the very end of your response, include these machine-readable lines:
 AGENT_STATUS: CONTINUE | COMPLETE | BLOCKED
-NEXT_ACTION: <short next action or blocker>
+NEXT_ACTION: <short next action or blocker>${completedSubtasksLine}
 
-Choose only one AGENT_STATUS value.`;
+Choose only one AGENT_STATUS value. Only report a subtask as completed after all of its work and validation are finished. Keep previously completed subtask IDs in the array.`;
 }
 
 export function buildInitialPrompt(task) {
@@ -136,6 +139,9 @@ This is continuation ${continuationNumber}. Review what has already been complet
 
 Next action from the previous response:
 ${next}
+
+Subtasks:
+${renderSubtasks(task)}
 
 ${renderFooter(task)}`;
 }
@@ -202,6 +208,25 @@ function parseBrowserAction(value) {
   }
 }
 
+function parseCompletedSubtaskIds(value) {
+  const match = lastDirectiveMatch(
+    value,
+    /^[ \t]*(?:[-*]\s*)?COMPLETED_SUBTASKS:\s*(.+?)\s*$/gim
+  );
+  if (!match) return [];
+
+  try {
+    const parsed = JSON.parse(match[1].trim());
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed
+      .filter((item) => typeof item === "string" || typeof item === "number")
+      .map((item) => String(item).trim())
+      .filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
 export function parseAgentDirective(text) {
   const value = String(text || "");
   const statusMatch = lastDirectiveMatch(
@@ -215,6 +240,13 @@ export function parseAgentDirective(text) {
   return {
     status: statusMatch ? statusMatch[1].toUpperCase() : null,
     nextAction: nextMatch ? nextMatch[1].trim() : "",
-    browserAction: parseBrowserAction(value)
+    browserAction: parseBrowserAction(value),
+    completedSubtaskIds: parseCompletedSubtaskIds(value)
   };
 }
+import {
+  browserTargetUrl,
+  isAutonomousBrowserTask,
+  isInteractiveBrowserTask,
+  isReadOnlyBrowserTask
+} from "./browser-task.js";
