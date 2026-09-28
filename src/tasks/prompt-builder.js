@@ -158,7 +158,7 @@ export function buildRolloverPrompt(task, continuationNumber = 1, context = {}) 
 
   return `Continue working on: ${task.title}.
 
-This is continuation ${continuationNumber} in a NEW ChatGPT conversation because the previous conversation reached ChatGPT's maximum length. The previous conversation is not available in this chat. Treat the durable task state below as the source of truth. Do not ask for the old conversation and do not repeat completed work. If execution is possible, do it now.${renderAuditContext(task)}
+This is continuation ${continuationNumber} in a NEW ChatGPT conversation because the previous chat was exhausted. The previous conversation is not available in this chat. Treat the durable task state below as the source of truth. Do not ask for the old conversation and do not repeat completed work. If execution is possible, do it now.${renderAuditContext(task)}
 
 Next action from the previous run:
 ${next}
