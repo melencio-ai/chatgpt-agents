@@ -262,7 +262,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case MESSAGE_TYPES.CHATGPT_ERROR:
           if (sender.tab?.id) {
-            await handleChatError(sender.tab.id, message.error || "", message.url || sender.tab.url);
+            await handleChatError(
+              sender.tab.id,
+              message.error || "",
+              message.url || sender.tab.url,
+              message.errorCode || ""
+            );
           }
           sendResponse({ ok: true });
           break;
