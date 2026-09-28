@@ -307,6 +307,8 @@
     const bottomNotices = queryAll("main div, main p, main span")
       .filter((element) => {
         if (!isVisible(element)) return false;
+        if (element.closest("[data-message-author-role='user'], [data-message-author-role='assistant']")) return false;
+
         const rect = element.getBoundingClientRect();
         const text = String(element.innerText || element.textContent || "").trim();
         return rect.top >= window.innerHeight * 0.45 &&
