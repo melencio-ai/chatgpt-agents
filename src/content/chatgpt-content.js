@@ -266,11 +266,32 @@
     return (element?.innerText || element?.textContent || "").trim();
   }
 
-  function getChatErrorText() {
-    const errorPattern = /something went wrong|there was an error|error generating|network error|request timed out|failed to (?:generate|respond)|try again later/i;
+  const conversationMaxLengthPattern = /maximum length for this conversation|conversation[^\n]{0,80}(?:reached|exceeded)[^\n]{0,80}maximum length|keep talking by starting a new chat|start(?:ing)? a new chat[^\n]{0,80}(?:continue|keep talking)/i;
+  const genericChatErrorPattern = /something went wrong|there was an error|error generating|network error|request timed out|failed to (?:generate|respond)|try again later/i;
+
+  function classifyChatErrorText(value) {
+    const text = String(value || "").trim();
+    if (!text) return null;
+    if (conversationMaxLengthPattern.test(text)) {
+      return {
+        text: text.slice(0, 500),
+        code: "conversation_max_length"
+      };
+    }
+    if (genericChatErrorPattern.test(text)) {
+      return {
+        text: text.slice(0, 500),
+        code: "generation_error"
+      };
+    }
+    return null;
+  }
+
+  function getChatErrorDetails() {
     const latest = getLatestAssistantText();
-    if (latest && !hasAgentDirective(latest) && errorPattern.test(latest)) {
-      return latest.slice(0, 500);
+    if (latest && !hasAgentDirective(latest)) {
+      const classified = classifyChatErrorText(latest);
+      if (classified) return classified;
     }
 
     const candidates = [
@@ -279,11 +300,15 @@
     ];
     for (const element of candidates) {
       if (!isVisible(element)) continue;
-      const text = String(element.innerText || element.textContent || "").trim();
-      if (errorPattern.test(text)) return text.slice(0, 500);
+      const classified = classifyChatErrorText(element.innerText || element.textContent || "");
+      if (classified) return classified;
     }
 
-    return "";
+    return null;
+  }
+
+  function getChatErrorText() {
+    return getChatErrorDetails()?.text || "";
   }
 
   function normalizeJsonCandidate(value) {
@@ -364,17 +389,18 @@
 
   function reportChatError() {
     if (isGenerating()) return false;
-    const error = getChatErrorText();
-    if (!error) {
+    const details = getChatErrorDetails();
+    if (!details?.text) {
       lastReportedErrorText = "";
       return false;
     }
-    if (error === lastReportedErrorText) return false;
+    if (details.text === lastReportedErrorText) return false;
 
-    lastReportedErrorText = error;
+    lastReportedErrorText = details.text;
     safeSend({
       type: MESSAGE_TYPES.CHATGPT_ERROR,
-      error,
+      error: details.text,
+      errorCode: details.code,
       url: location.href
     });
     return true;
@@ -680,6 +706,7 @@
               generating: isGenerating(),
               latestAssistantText: getLatestAssistantText(),
               errorText: getChatErrorText(),
+              errorCode: getChatErrorDetails()?.code || "",
               url: location.href
             });
             break;
