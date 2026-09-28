@@ -35,6 +35,22 @@ next browser action
 
 The user only needs to intervene for a true blocker such as login/MFA, CAPTCHA, an external authentication origin, permission denial, or browser policy restriction.
 
+## Automatic conversation rollover
+
+When ChatGPT reports that the current conversation has reached its maximum length, the extension now treats that as a recoverable rollover instead of a failed run.
+
+The same task/agent will:
+
+1. preserve the old conversation URL in local run history;
+2. keep completed/incomplete subtasks and the latest `next_action`;
+3. open a fresh `https://chatgpt.com/` conversation;
+4. rebind the running agent to the new ChatGPT tab;
+5. inject a compact rollover prompt that explicitly says the old conversation is unavailable;
+6. include the latest preserved execution result plus durable task state; and
+7. continue the run without resetting completed subtasks.
+
+Generic ChatGPT generation/network failures still remain normal errors. Only the conversation-length condition triggers automatic rollover.
+
 ## Subtask progress
 
 Agent prompts include stable subtask IDs and require a machine-readable progress line:
