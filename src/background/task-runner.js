@@ -32,7 +32,8 @@ import {
 import {
   ensureAuditTab,
   observeAuditPage,
-  executeBrowserAction
+  executeBrowserAction,
+  injectChatPromptViaDebugger
 } from "./browser-operator.js";
 
 const ACTIVE_STATES = new Set([
@@ -522,15 +523,40 @@ async function injectPrompt(agent, prompt) {
     lastPromptAt: nowIso(),
     lastProgressAt: nowIso()
   });
+
+  let contentScriptError = null;
   try {
     const response = await sendChatMessage(agent.tabId, {
       type: MESSAGE_TYPES.INJECT_PROMPT,
       prompt
     });
     if (!response?.ok) throw new Error(response?.error || "Prompt injection failed.");
-    await patchAgent(agent.id, { state: AGENT_STATES.SUBMITTED, lastProgressAt: nowIso() });
+    await patchAgent(agent.id, {
+      state: AGENT_STATES.SUBMITTED,
+      lastProgressAt: nowIso(),
+      error: ""
+    });
+    return;
   } catch (error) {
-    await patchAgent(agent.id, { state: AGENT_STATES.ERROR, error: String(error?.message || error) });
+    contentScriptError = error;
+  }
+
+  try {
+    const fallback = await injectChatPromptViaDebugger(agent.tabId, prompt);
+    if (!fallback?.ok) throw new Error("Browser-level prompt injection did not complete.");
+    await patchAgent(agent.id, {
+      state: AGENT_STATES.SUBMITTED,
+      lastProgressAt: nowIso(),
+      error: ""
+    });
+    return;
+  } catch (debuggerError) {
+    const contentMessage = String(contentScriptError?.message || contentScriptError || "unknown content-script error");
+    const debuggerMessage = String(debuggerError?.message || debuggerError || "unknown debugger error");
+    await patchAgent(agent.id, {
+      state: AGENT_STATES.ERROR,
+      error: `Prompt injection failed by both methods. Content script: ${contentMessage} | Browser input fallback: ${debuggerMessage}`
+    });
     await pumpQueue();
   }
 }
