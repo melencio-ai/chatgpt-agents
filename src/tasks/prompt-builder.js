@@ -146,6 +146,32 @@ ${renderSubtasks(task)}
 ${renderFooter(task)}`;
 }
 
+function compactPreviousResult(value, limit = 3500) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.length <= limit ? text : `…${text.slice(-limit)}`;
+}
+
+export function buildRolloverPrompt(task, continuationNumber = 1, context = {}) {
+  const next = task.next_action || incompleteSubtasks(task)[0]?.title || "Proceed with the next incomplete item.";
+  const previousResult = compactPreviousResult(context.previousResult);
+
+  return `Continue working on: ${task.title}.
+
+This is continuation ${continuationNumber} in a NEW ChatGPT conversation because the previous conversation reached ChatGPT's maximum length. The previous conversation is not available in this chat. Treat the durable task state below as the source of truth. Do not ask for the old conversation and do not repeat completed work. If execution is possible, do it now.${renderAuditContext(task)}
+
+Next action from the previous run:
+${next}
+
+${previousResult ? `Latest execution result preserved from the previous chat:
+${previousResult}
+
+` : ""}Subtasks:
+${renderSubtasks(task)}
+
+${renderFooter(task)}`;
+}
+
 function renderInteractiveElements(elements) {
   if (!Array.isArray(elements) || !elements.length) return "- None detected.";
   return elements.slice(0, 120).map((item) => {

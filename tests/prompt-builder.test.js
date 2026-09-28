@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildInitialPrompt,
   buildContinuationPrompt,
+  buildRolloverPrompt,
   buildBrowserObservationPrompt,
   parseAgentDirective
 } from "../src/tasks/prompt-builder.js";
@@ -35,6 +36,23 @@ test("continuation prompt includes continuation number", () => {
   assert.match(prompt, /continuation 3/i);
   assert.match(prompt, /\[x\] Architecture/);
   assert.match(prompt, /COMPLETED_SUBTASKS:/);
+});
+
+test("rollover prompt is self-contained for a fresh ChatGPT conversation", () => {
+  const prompt = buildRolloverPrompt(
+    { ...task, next_action: "Run the focused validation" },
+    7,
+    { previousResult: "Implemented the reel service and queued the render." }
+  );
+  assert.match(prompt, /continuation 7 in a NEW ChatGPT conversation/i);
+  assert.match(prompt, /previous conversation reached ChatGPT's maximum length/i);
+  assert.match(prompt, /previous conversation is not available in this chat/i);
+  assert.match(prompt, /Run the focused validation/);
+  assert.match(prompt, /Implemented the reel service/);
+  assert.match(prompt, /\[x\] Architecture/);
+  assert.match(prompt, /\[ \] JSON loader/);
+  assert.match(prompt, /COMPLETED_SUBTASKS:/);
+  assert.doesNotMatch(prompt, /Review what has already been completed in this conversation/i);
 });
 
 test("audit prompt explains autonomous read-only browser actions", () => {

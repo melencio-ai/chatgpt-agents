@@ -90,3 +90,25 @@ test("visible ChatGPT failures are surfaced without an automatic wake-up", async
   assert.match(source, /handleChatError/);
   assert.doesNotMatch(source, /runWatchdogOnce/);
 });
+
+test("conversation length exhaustion rolls the same agent into a fresh ChatGPT chat", async () => {
+  const content = await readFile(new URL("../src/content/chatgpt-content.js", import.meta.url), "utf8");
+  const runner = await readFile(new URL("../src/background/task-runner.js", import.meta.url), "utf8");
+  const worker = await readFile(new URL("../src/background/service-worker.js", import.meta.url), "utf8");
+
+  assert.match(content, /conversationMaxLengthPattern/);
+  assert.match(content, /conversation_max_length/);
+  assert.match(content, /errorCode:\s*details\.code/);
+  assert.match(content, /bottomNotices/);
+
+  assert.match(runner, /CONVERSATION_MAX_LENGTH_PATTERN/);
+  assert.match(runner, /rolloverConversation/);
+  assert.match(runner, /url:\s*"https:\/\/chatgpt\.com\/"/);
+  assert.match(runner, /conversationHistory/);
+  assert.match(runner, /pendingRollover/);
+  assert.match(runner, /buildRolloverPrompt/);
+  assert.match(runner, /previousResult:\s*responseTail\(current\.lastResponse\)/);
+  assert.match(runner, /errorCode === "conversation_max_length"/);
+
+  assert.match(worker, /message\.errorCode \|\| ""/);
+});
