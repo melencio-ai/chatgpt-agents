@@ -45,7 +45,8 @@ test("rollover prompt is self-contained for a fresh ChatGPT conversation", () =>
     { previousResult: "Implemented the reel service and queued the render." }
   );
   assert.match(prompt, /continuation 7 in a NEW ChatGPT conversation/i);
-  assert.match(prompt, /previous conversation reached ChatGPT's maximum length/i);
+  assert.match(prompt, /previous chat was exhausted/i);
+  assert.doesNotMatch(prompt, /maximum length/i);
   assert.match(prompt, /previous conversation is not available in this chat/i);
   assert.match(prompt, /Run the focused validation/);
   assert.match(prompt, /Implemented the reel service/);
