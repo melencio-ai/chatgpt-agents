@@ -427,48 +427,97 @@
     return true;
   }
 
-  function setNativeValue(element, value) {
-    if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
-      const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
-      if (setter) setter.call(element, value);
-      else element.value = value;
-      element.dispatchEvent(new Event("input", { bubbles: true }));
-      element.dispatchEvent(new Event("change", { bubbles: true }));
-      return;
-    }
+  function dispatchComposerInput(element, value, inputType = "insertText") {
+    element.dispatchEvent(new InputEvent("beforeinput", {
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+      inputType,
+      data: value
+    }));
+    element.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      composed: true,
+      inputType,
+      data: value
+    }));
+    element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  }
 
+  function selectComposerContents(element) {
     element.focus();
     const selection = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(element);
     selection.removeAllRanges();
     selection.addRange(range);
+  }
 
-    element.dispatchEvent(new InputEvent("beforeinput", {
-      bubbles: true,
-      cancelable: true,
-      inputType: "insertText",
-      data: value
-    }));
+  function replaceEditableDom(element, value) {
+    selectComposerContents(element);
+    element.replaceChildren(document.createTextNode(value));
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    dispatchComposerInput(element, value, "insertText");
+    return "dom-replace";
+  }
 
-    document.execCommand("insertText", false, value);
+  function pasteIntoEditable(element, value) {
+    try {
+      selectComposerContents(element);
+      const transfer = new DataTransfer();
+      transfer.setData("text/plain", value);
+      element.dispatchEvent(new ClipboardEvent("paste", {
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+        clipboardData: transfer
+      }));
+      return "paste-event";
+    } catch {
+      return "";
+    }
+  }
 
-    if (!(element.innerText || element.textContent || "").trim()) {
-      element.textContent = value;
+  function setNativeValue(element, value) {
+    if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+      const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+      if (setter) setter.call(element, value);
+      else element.value = value;
+      dispatchComposerInput(element, value, "insertText");
+      return "native-value";
     }
 
-    element.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertText",
-      data: value
-    }));
-    element.dispatchEvent(new Event("change", { bubbles: true }));
+    selectComposerContents(element);
+
+    try {
+      document.execCommand("insertText", false, value);
+    } catch {
+      // Rich text editors can reject execCommand after internal editor changes.
+    }
+
+    dispatchComposerInput(element, value, "insertText");
     element.dispatchEvent(new KeyboardEvent("keyup", {
       bubbles: true,
       key: " ",
       code: "Space"
     }));
+
+    if (composerContainsPrompt(element, value)) {
+      return "exec-command";
+    }
+
+    pasteIntoEditable(element, value);
+    if (composerContainsPrompt(element, value)) {
+      return "paste-event";
+    }
+
+    return replaceEditableDom(element, value);
   }
 
   async function waitFor(predicate, timeoutMs = 12000, intervalMs = 150) {
@@ -561,47 +610,112 @@
     return `url=${location.href}; visible textareas=${textareas}; textboxes=${textboxes}; contenteditables=${editables}`;
   }
 
+  async function populateComposerPrompt(promptText) {
+    let composer = await waitFor(getComposer, 20000, 200);
+    if (!composer) return null;
+
+    let method = "";
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      composer = getComposer() || composer;
+      composer.focus();
+      method = setNativeValue(composer, promptText);
+
+      const accepted = await waitFor(
+        () => activeComposerHasPrompt(promptText),
+        1800,
+        90
+      );
+      if (accepted) {
+        return {
+          composer: getComposer() || composer,
+          method,
+          attempt: attempt + 1
+        };
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    }
+
+    return {
+      composer: getComposer() || composer,
+      method,
+      attempt: 3,
+      failed: true
+    };
+  }
+
+  async function submitComposerPrompt(composer, previousAssistantText) {
+    const sendButton = await waitFor(getSendButton, 3500, 100);
+    if (sendButton) {
+      sendButton.click();
+    } else {
+      const form = composer?.closest("form");
+      if (form?.requestSubmit) {
+        form.requestSubmit();
+      } else {
+        pressEnterToSend(composer);
+      }
+    }
+
+    let started = await waitFor(
+      () => isGenerating() ||
+        getLatestAssistantText() !== previousAssistantText ||
+        !composerHasText(getComposer() || composer),
+      2800,
+      120
+    );
+    if (started) return true;
+
+    const activeComposer = getComposer() || composer;
+    if (composerHasText(activeComposer)) {
+      const form = activeComposer.closest("form");
+      if (form?.requestSubmit) {
+        form.requestSubmit();
+      } else {
+        pressEnterToSend(activeComposer);
+      }
+      started = await waitFor(
+        () => isGenerating() ||
+          getLatestAssistantText() !== previousAssistantText ||
+          !composerHasText(getComposer() || activeComposer),
+        2200,
+        120
+      );
+    }
+
+    return Boolean(started);
+  }
+
   async function injectPrompt(prompt) {
     lastReportedErrorText = "";
-    const composer = await waitFor(getComposer, 20000, 200);
-    if (!composer) {
+    const promptText = String(prompt || "");
+    const populated = await populateComposerPrompt(promptText);
+    if (!populated?.composer) {
       throw new Error(`ChatGPT composer was not found. ${describeComposerEnvironment()}`);
     }
 
-    const promptText = String(prompt || "");
-    composer.focus();
-    setNativeValue(composer, promptText);
-
-    const populated = await waitFor(() => composerReadyToSend(promptText), 5000, 100);
-    if (!populated) {
+    if (populated.failed || !composerReadyToSend(promptText)) {
       const currentComposer = getComposer();
       const currentTextLength = normalizePromptText(readComposerText(currentComposer)).length;
       const sendAvailable = Boolean(getSendButton());
       throw new Error(
-        `ChatGPT composer did not accept the injected prompt. activeTextLength=${currentTextLength}; sendAvailable=${sendAvailable}.`
+        `ChatGPT composer did not accept the injected prompt after 3 attempts. activeTextLength=${currentTextLength}; sendAvailable=${sendAvailable}; lastMethod=${populated.method || "unknown"}. ${describeComposerEnvironment()}`
       );
     }
 
     submittedByExtension = true;
     lastReportedAssistantText = getLatestAssistantText();
 
-    const activeComposer = getComposer() || composer;
-    const sendButton = await waitFor(getSendButton, 5000, 100);
-    if (sendButton) {
-      sendButton.click();
-    } else {
-      pressEnterToSend(activeComposer);
-    }
-
-    const started = await waitFor(
-      () => isGenerating() || getLatestAssistantText() !== lastReportedAssistantText || !composerHasText(getComposer() || composer),
-      4500,
-      120
+    const started = await submitComposerPrompt(
+      getComposer() || populated.composer,
+      lastReportedAssistantText
     );
 
     if (!started) {
       submittedByExtension = false;
-      throw new Error("ChatGPT prompt was populated but could not be submitted.");
+      throw new Error(
+        `ChatGPT prompt was populated with ${populated.method || "unknown"} but could not be submitted. ${describeComposerEnvironment()}`
+      );
     }
 
     return true;
