@@ -51,6 +51,18 @@ test("prompt injection survives ChatGPT composer rerenders and rich-text inserti
   assert.match(source, /describeComposerEnvironment/);
 });
 
+test("prompt injection falls back to Chrome debugger input when DOM injection fails", async () => {
+  const runner = await readFile(new URL("../src/background/task-runner.js", import.meta.url), "utf8");
+  const browser = await readFile(new URL("../src/background/browser-operator.js", import.meta.url), "utf8");
+  assert.match(runner, /injectChatPromptViaDebugger/);
+  assert.match(runner, /Prompt injection failed by both methods/);
+  assert.match(browser, /export async function injectChatPromptViaDebugger/);
+  assert.match(browser, /Input\.insertText/);
+  assert.match(browser, /Input\.dispatchKeyEvent/);
+  assert.match(browser, /Debugger prompt injection could not find ChatGPT composer/);
+  assert.match(browser, /Debugger prompt injection populated ChatGPT but submission did not start/);
+});
+
 test("interactive browser tasks support visible-field typing and bounded key input", async () => {
   const source = await readFile(new URL("../src/background/browser-operator.js", import.meta.url), "utf8");
   assert.match(source, /action\.type === "type_text"/);
