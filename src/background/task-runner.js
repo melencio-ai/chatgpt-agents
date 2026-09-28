@@ -15,6 +15,7 @@ import {
 import {
   buildInitialPrompt,
   buildContinuationPrompt,
+  buildRolloverPrompt,
   buildBrowserObservationPrompt,
   parseAgentDirective
 } from "../tasks/prompt-builder.js";
@@ -55,6 +56,13 @@ const RECOVERABLE_CHAT_STATES = new Set([
 
 function responseTail(text) {
   return String(text || "").trim().slice(-16000);
+}
+
+const CONVERSATION_MAX_LENGTH_PATTERN = /maximum length for this conversation|conversation[^\n]{0,80}(?:reached|exceeded)[^\n]{0,80}maximum length|keep talking by starting a new chat|start(?:ing)? a new chat[^\n]{0,80}(?:continue|keep talking)/i;
+
+function isConversationMaxLengthError(value, errorCode = "") {
+  return errorCode === "conversation_max_length" ||
+    CONVERSATION_MAX_LENGTH_PATTERN.test(String(value || ""));
 }
 
 function nowIso() {
@@ -186,6 +194,16 @@ async function reconcileAgentChatState(agent, pageUrl = "") {
   if (!chatState) return false;
 
   const conversationUrl = chatState.url || pageUrl || agent.conversationUrl;
+  if (isConversationMaxLengthError(chatState.errorText, chatState.errorCode)) {
+    await handleChatError(
+      agent.tabId,
+      chatState.errorText,
+      conversationUrl,
+      chatState.errorCode
+    );
+    return true;
+  }
+
   if (chatState.generating) {
     if (agent.state !== AGENT_STATES.GENERATING) {
       await patchAgent(agent.id, {
@@ -237,6 +255,94 @@ async function focusBrowserTab(tabId) {
   }
 }
 
+async function rolloverConversation(agent, errorText = "", pageUrl = "") {
+  const snapshot = await getState();
+  const current = snapshot.agents[agent.id];
+  const task = current ? snapshot.tasks[current.taskId] : null;
+  if (!current || !task) return false;
+  if (current.pendingRollover) return true;
+
+  const previousTabId = current.tabId || null;
+  const previousUrl = pageUrl || current.conversationUrl || task.chatgpt_url || "";
+  const continuationCount = Math.max(0, Number(current.continuationCount) || 0) + 1;
+  const rolloverCount = Math.max(0, Number(current.rolloverCount) || 0) + 1;
+  const history = Array.isArray(current.conversationHistory)
+    ? current.conversationHistory.slice(-19)
+    : [];
+  history.push({
+    tabId: previousTabId,
+    url: previousUrl,
+    reason: "conversation_max_length",
+    rolledOverAt: nowIso()
+  });
+
+  const pendingRollover = {
+    reason: "conversation_max_length",
+    errorText: String(errorText || "").trim().slice(0, 1000),
+    previousTabId,
+    previousUrl,
+    previousResult: responseTail(current.lastResponse).slice(-3500),
+    createdAt: nowIso()
+  };
+
+  await patchAgent(current.id, {
+    state: AGENT_STATES.CREATING_TAB,
+    continuationCount,
+    rolloverCount,
+    conversationHistory: history,
+    pendingRollover,
+    error: "",
+    recoveryExhausted: false,
+    lastProgressAt: nowIso()
+  });
+
+  let tab;
+  try {
+    tab = await chrome.tabs.create({
+      url: "https://chatgpt.com/",
+      active: true
+    });
+  } catch (error) {
+    await patchAgent(current.id, {
+      state: AGENT_STATES.NEEDS_USER,
+      pendingRollover: null,
+      error: `Could not create a fresh ChatGPT conversation after the previous chat reached its limit: ${String(error?.message || error)}`
+    });
+    return false;
+  }
+
+  await patchAgent(current.id, {
+    tabId: tab.id,
+    conversationUrl: tab.url || "https://chatgpt.com/",
+    state: AGENT_STATES.WAITING_FOR_CHATGPT,
+    lastProgressAt: nowIso()
+  });
+
+  await focusBrowserTab(tab.id);
+  const loaded = await waitForTabSettled(tab.id, 20000);
+  if (!loaded) {
+    await patchAgent(current.id, {
+      state: AGENT_STATES.NEEDS_USER,
+      pendingRollover: null,
+      error: "A fresh ChatGPT tab was opened for rollover but did not finish loading. Use Resume to retry."
+    });
+    return false;
+  }
+
+  try {
+    const settledTab = await chrome.tabs.get(tab.id);
+    await handlePageReady(tab.id, settledTab.url || "https://chatgpt.com/");
+    return true;
+  } catch (error) {
+    await patchAgent(current.id, {
+      state: AGENT_STATES.NEEDS_USER,
+      pendingRollover: null,
+      error: `Fresh-chat rollover could not start: ${String(error?.message || error)}`
+    });
+    return false;
+  }
+}
+
 
 async function createRun(taskId, mode) {
   const agentId = makeId("agent");
@@ -254,6 +360,9 @@ async function createRun(taskId, mode) {
       mode,
       state: AGENT_STATES.QUEUED,
       continuationCount: 0,
+      rolloverCount: 0,
+      conversationHistory: [],
+      pendingRollover: null,
       browserStepCount: 0,
       lastResponse: "",
       lastDirective: null,
@@ -490,6 +599,24 @@ export async function handlePageReady(tabId, pageUrl) {
   await patchAgent(agent.id, { conversationUrl, lastProgressAt: nowIso() });
   await patchTask(agent.taskId, { chatgpt_url: conversationUrl });
 
+  if (agent.pendingRollover) {
+    const task = await getTask(agent.taskId);
+    const pending = agent.pendingRollover;
+    await patchAgent(agent.id, {
+      state: AGENT_STATES.READY,
+      pendingRollover: null,
+      error: "",
+      lastProgressAt: nowIso()
+    });
+    await injectPrompt(
+      { ...agent, conversationUrl, state: AGENT_STATES.READY, pendingRollover: null },
+      buildRolloverPrompt(task, Math.max(1, Number(agent.continuationCount) || 1), {
+        previousResult: pending.previousResult
+      })
+    );
+    return;
+  }
+
   if (RECOVERABLE_CHAT_STATES.has(agent.state)) {
     await reconcileAgentChatState({ ...agent, conversationUrl }, conversationUrl);
     return;
@@ -538,11 +665,16 @@ export async function enforceAgentLimit() {
   }
 }
 
-export async function handleChatError(tabId, errorText, pageUrl = "") {
+export async function handleChatError(tabId, errorText, pageUrl = "", errorCode = "") {
   const agent = await getAgentByTabId(tabId);
   if (!agent || [AGENT_STATES.PAUSED, AGENT_STATES.COMPLETE, AGENT_STATES.CANCELLED].includes(agent.state)) return;
 
   const message = String(errorText || "ChatGPT reported an unknown generation error.").trim().slice(0, 1000);
+  if (isConversationMaxLengthError(message, errorCode)) {
+    await rolloverConversation(agent, message, pageUrl);
+    return;
+  }
+
   await patchAgent(agent.id, {
     state: AGENT_STATES.ERROR,
     error: `ChatGPT reported: ${message}`,
