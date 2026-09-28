@@ -304,6 +304,25 @@
       if (classified) return classified;
     }
 
+    const bottomNotices = queryAll("main div, main p, main span")
+      .filter((element) => {
+        if (!isVisible(element)) return false;
+        const rect = element.getBoundingClientRect();
+        const text = String(element.innerText || element.textContent || "").trim();
+        return rect.top >= window.innerHeight * 0.45 &&
+          text.length > 20 &&
+          text.length <= 700 &&
+          conversationMaxLengthPattern.test(text);
+      })
+      .sort((left, right) => right.getBoundingClientRect().top - left.getBoundingClientRect().top);
+
+    if (bottomNotices.length) {
+      return {
+        text: String(bottomNotices[0].innerText || bottomNotices[0].textContent || "").trim().slice(0, 500),
+        code: "conversation_max_length"
+      };
+    }
+
     return null;
   }
 
