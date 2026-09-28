@@ -369,6 +369,270 @@ export async function observeAuditPage(tabId, options = {}) {
   });
 }
 
+const CHAT_COMPOSER_TARGET_EXPRESSION = `(() => {
+  const visible = (el) => {
+    if (!el) return false;
+    const style = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    return style.visibility !== "hidden" &&
+      style.display !== "none" &&
+      rect.width > 0 &&
+      rect.height > 0;
+  };
+  const editable = (el) => Boolean(
+    el &&
+    !el.disabled &&
+    el.getAttribute("aria-disabled") !== "true" &&
+    (
+      el instanceof HTMLTextAreaElement ||
+      el instanceof HTMLInputElement ||
+      el.isContentEditable ||
+      ["true", "plaintext-only"].includes(el.getAttribute("contenteditable"))
+    )
+  );
+  const score = (el) => {
+    const id = String(el.id || "").toLowerCase();
+    const testId = String(el.getAttribute("data-testid") || "").toLowerCase();
+    const role = String(el.getAttribute("role") || "").toLowerCase();
+    const placeholder = String(el.getAttribute("placeholder") || "").toLowerCase();
+    const aria = String(el.getAttribute("aria-label") || "").toLowerCase();
+    const klass = typeof el.className === "string" ? el.className.toLowerCase() : "";
+    let value = 0;
+    if (id === "prompt-textarea") value += 120;
+    if (/prompt|composer/.test(testId)) value += 100;
+    if (role === "textbox") value += 55;
+    if (/message|ask|prompt|chat/.test(placeholder)) value += 45;
+    if (/message|ask|prompt|chat/.test(aria)) value += 35;
+    if (/prosemirror/.test(klass)) value += 25;
+    if (el.closest("form")) value += 30;
+    if (el.closest("main")) value += 15;
+    if (el instanceof HTMLTextAreaElement) value += 15;
+    if (el.isContentEditable) value += 15;
+    const rect = el.getBoundingClientRect();
+    if (rect.top > innerHeight * 0.45) value += 10;
+    if (/search/.test([id, testId, role, placeholder, aria, klass].join(" ")) && !/prompt|message|ask/.test([id, testId, placeholder, aria].join(" "))) {
+      value -= 120;
+    }
+    return value;
+  };
+
+  const selectors = [
+    "#prompt-textarea",
+    "textarea#prompt-textarea",
+    "textarea[name='prompt']",
+    "textarea[data-testid='prompt-textarea']",
+    "div[contenteditable='true'][data-testid='prompt-textarea']",
+    "div[contenteditable='plaintext-only'][data-testid='prompt-textarea']",
+    "[role='textbox'][contenteditable='true']",
+    "[role='textbox'][contenteditable='plaintext-only']",
+    "div.ProseMirror[contenteditable='true']",
+    "div.ProseMirror[contenteditable='plaintext-only']",
+    "main form textarea",
+    "main form [contenteditable='true']",
+    "main form [contenteditable='plaintext-only']",
+    "form textarea",
+    "form [contenteditable]:not([contenteditable='false'])"
+  ];
+
+  const seen = new Set();
+  const candidates = [];
+  for (const selector of selectors) {
+    for (const el of document.querySelectorAll(selector)) {
+      if (seen.has(el) || !visible(el) || !editable(el)) continue;
+      seen.add(el);
+      candidates.push(el);
+    }
+  }
+  candidates.sort((a, b) => score(b) - score(a));
+  const el = candidates[0] || null;
+  if (!el) {
+    return {
+      found: false,
+      url: location.href,
+      title: document.title,
+      editableCount: document.querySelectorAll("[contenteditable],textarea,input").length
+    };
+  }
+
+  el.scrollIntoView({ block: "center", inline: "center" });
+  el.focus();
+  const rect = el.getBoundingClientRect();
+  return {
+    found: true,
+    tag: el.tagName.toLowerCase(),
+    id: el.id || "",
+    testId: el.getAttribute("data-testid") || "",
+    role: el.getAttribute("role") || "",
+    ariaLabel: el.getAttribute("aria-label") || "",
+    contenteditable: el.getAttribute("contenteditable") || "",
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2
+  };
+})()`;
+
+const CHAT_COMPOSER_STATE_EXPRESSION = `(() => {
+  const clean = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+  const selectors = [
+    "#prompt-textarea",
+    "textarea#prompt-textarea",
+    "textarea[name='prompt']",
+    "textarea[data-testid='prompt-textarea']",
+    "div[contenteditable='true'][data-testid='prompt-textarea']",
+    "div[contenteditable='plaintext-only'][data-testid='prompt-textarea']",
+    "[role='textbox'][contenteditable='true']",
+    "[role='textbox'][contenteditable='plaintext-only']",
+    "div.ProseMirror[contenteditable='true']",
+    "div.ProseMirror[contenteditable='plaintext-only']",
+    "main form textarea",
+    "main form [contenteditable='true']",
+    "main form [contenteditable='plaintext-only']"
+  ];
+  let composer = null;
+  for (const selector of selectors) {
+    composer = document.querySelector(selector);
+    if (composer) break;
+  }
+  const value = composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement
+    ? composer.value
+    : composer?.innerText || composer?.textContent || "";
+  const stop = document.querySelector(
+    "button[data-testid='stop-button'],button[aria-label='Stop streaming'],button[aria-label*='Stop']"
+  );
+  const send = document.querySelector(
+    "button[data-testid='send-button'],button[data-testid*='send'],button[aria-label='Send prompt'],button[aria-label='Send message'],button[aria-label*='Send'],form button[type='submit']"
+  );
+  return {
+    text: clean(value),
+    generating: Boolean(stop && !stop.disabled),
+    sendAvailable: Boolean(send && !send.disabled),
+    composerFound: Boolean(composer)
+  };
+})()`;
+
+async function dispatchDebuggerKey(debuggee, key, code, keyCode, modifiers = 0) {
+  await chrome.debugger.sendCommand(debuggee, "Input.dispatchKeyEvent", {
+    type: "rawKeyDown",
+    key,
+    code,
+    modifiers,
+    windowsVirtualKeyCode: keyCode,
+    nativeVirtualKeyCode: keyCode
+  });
+  await chrome.debugger.sendCommand(debuggee, "Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key,
+    code,
+    modifiers,
+    windowsVirtualKeyCode: keyCode,
+    nativeVirtualKeyCode: keyCode
+  });
+}
+
+export async function injectChatPromptViaDebugger(tabId, prompt) {
+  const promptText = String(prompt || "");
+  if (!promptText.trim()) throw new Error("Debugger prompt injection requires non-empty text.");
+
+  const tab = await chrome.tabs.get(tabId);
+  if (!String(tab.url || "").startsWith("https://chatgpt.com/")) {
+    throw new Error(`Debugger prompt injection requires chatgpt.com, got: ${tab.url || "unknown URL"}`);
+  }
+
+  return withDebugger(tabId, async (debuggee) => {
+    const target = await evaluate(debuggee, CHAT_COMPOSER_TARGET_EXPRESSION);
+    if (!target?.found) {
+      throw new Error(
+        `Debugger prompt injection could not find ChatGPT composer. url=${target?.url || tab.url || ""}; title=${target?.title || ""}; editableCount=${target?.editableCount ?? "unknown"}`
+      );
+    }
+
+    await dispatchPointerClick(debuggee, target.x, target.y, {
+      visible: false,
+      label: "Prompt injection"
+    });
+
+    await dispatchDebuggerKey(debuggee, "a", "KeyA", 65, 2);
+    await dispatchDebuggerKey(debuggee, "Backspace", "Backspace", 8);
+    await chrome.debugger.sendCommand(debuggee, "Input.insertText", { text: promptText });
+    await sleep(180);
+
+    const expected = promptText.replace(/\\s+/g, " ").trim();
+    const probe = expected.slice(0, Math.min(160, expected.length));
+    let state = await evaluate(debuggee, CHAT_COMPOSER_STATE_EXPRESSION);
+    if (!state?.text || !state.text.includes(probe)) {
+      throw new Error(
+        `Debugger prompt injection typed text but ChatGPT composer did not retain it. textLength=${state?.text?.length || 0}; sendAvailable=${Boolean(state?.sendAvailable)}; target=${target.tag}#${target.id || ""}; testId=${target.testId || ""}`
+      );
+    }
+
+    const sendTarget = await evaluate(debuggee, `(() => {
+      const selectors = [
+        "button[data-testid='send-button']",
+        "button[data-testid*='send']",
+        "button[aria-label='Send prompt']",
+        "button[aria-label='Send message']",
+        "button[aria-label*='Send']",
+        "form button[type='submit']"
+      ];
+      const visible = (el) => {
+        if (!el) return false;
+        const style = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.visibility !== "hidden" &&
+          style.display !== "none" &&
+          rect.width > 0 &&
+          rect.height > 0;
+      };
+      for (const selector of selectors) {
+        for (const button of document.querySelectorAll(selector)) {
+          if (button.disabled || button.getAttribute("aria-disabled") === "true" || !visible(button)) continue;
+          const label = [
+            button.getAttribute("aria-label"),
+            button.getAttribute("data-testid"),
+            button.title,
+            button.textContent
+          ].filter(Boolean).join(" ").toLowerCase();
+          if (/stop|voice|audio|dictat|attach|upload/.test(label)) continue;
+          const rect = button.getBoundingClientRect();
+          return {
+            found: true,
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+            label
+          };
+        }
+      }
+      return { found: false };
+    })()`);
+
+    if (sendTarget?.found) {
+      await dispatchPointerClick(debuggee, sendTarget.x, sendTarget.y, {
+        visible: false,
+        label: "Prompt submit"
+      });
+    } else {
+      await dispatchDebuggerKey(debuggee, "Enter", "Enter", 13);
+    }
+
+    for (let attempt = 0; attempt < 28; attempt += 1) {
+      await sleep(120);
+      state = await evaluate(debuggee, CHAT_COMPOSER_STATE_EXPRESSION);
+      if (state?.generating || !state?.text) {
+        return {
+          ok: true,
+          method: "debugger-input",
+          target,
+          sendButton: Boolean(sendTarget?.found),
+          generating: Boolean(state?.generating)
+        };
+      }
+    }
+
+    throw new Error(
+      `Debugger prompt injection populated ChatGPT but submission did not start. sendButton=${Boolean(sendTarget?.found)}; textLength=${state?.text?.length || 0}; generating=${Boolean(state?.generating)}`
+    );
+  });
+}
+
 function normalizeAction(action) {
   if (!action || typeof action !== "object") {
     throw new Error("Browser action must be a JSON object.");
