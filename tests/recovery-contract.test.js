@@ -100,6 +100,8 @@ test("conversation length exhaustion rolls the same agent into a fresh ChatGPT c
   assert.match(content, /conversation_max_length/);
   assert.match(content, /errorCode:\s*details\.code/);
   assert.match(content, /bottomNotices/);
+  assert.match(content, /data-message-author-role='user'/);
+  assert.match(content, /data-message-author-role='assistant'/);
 
   assert.match(runner, /CONVERSATION_MAX_LENGTH_PATTERN/);
   assert.match(runner, /rolloverConversation/);
