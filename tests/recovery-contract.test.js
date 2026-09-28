@@ -40,6 +40,17 @@ test("prompt injection retries by reinjecting the content script when missing", 
   assert.match(source, /type:\s*MESSAGE_TYPES\.INJECT_PROMPT/);
 });
 
+test("prompt injection survives ChatGPT composer rerenders and rich-text insertion changes", async () => {
+  const source = await readFile(new URL("../src/content/chatgpt-content.js", import.meta.url), "utf8");
+  assert.match(source, /populateComposerPrompt/);
+  assert.match(source, /for \(let attempt = 0; attempt < 3; attempt \+= 1\)/);
+  assert.match(source, /ClipboardEvent\("paste"/);
+  assert.match(source, /replaceEditableDom/);
+  assert.match(source, /requestSubmit/);
+  assert.match(source, /lastMethod=/);
+  assert.match(source, /describeComposerEnvironment/);
+});
+
 test("interactive browser tasks support visible-field typing and bounded key input", async () => {
   const source = await readFile(new URL("../src/background/browser-operator.js", import.meta.url), "utf8");
   assert.match(source, /action\.type === "type_text"/);
